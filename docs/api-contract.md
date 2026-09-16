@@ -12,7 +12,7 @@
 - `POST /api/admin/studies/{id}/invites {}` → `{id,url,expires_at}`；`POST /api/admin/sessions/{id}/recovery-invite {}` → `{url,expires_at}`，绑定原会话并撤销旧凭证。
 - `GET /api/admin/studies/{id}/invites` → `{id,version_number,session_id,status,created_at,expires_at,redeemed_at,revoked_at}` 数组，不返回 token／hash；status 为 available/redeemed/revoked/expired。`POST /api/admin/studies/{id}/invites/{invite_id}/revoke {}` 仅撤销未兑换邀请，已兑换返回 INVITE_USED，凭证轮换使用恢复邀请；档案不受影响。
 - `GET /api/admin/studies/{id}/sessions` → Session 数组；`GET /api/admin/sessions/{id}` → Detail；`DELETE /api/admin/sessions/{id}`。
-- `POST /api/admin/sessions/{id}/reports {}` → `{job_id}`；`POST /api/admin/sessions/{id}/budget {budget_cny}`；`POST /api/admin/turns/{id}/revision {text}`。
+- `POST /api/admin/sessions/{id}/reports {retry_job_id?,accept_possible_charge?:false}` → `{job_id}`；空对象新建报告，指定 retry_job_id 重试本场失败报告并复用来源快照及成功检查点。`POST /api/admin/sessions/{id}/budget {budget_cny}`；`POST /api/admin/turns/{id}/revision {text}`。
 - `GET /api/admin/sessions/{id}/export?format=json|csv|markdown` → 附件。
 - `GET /api/admin/usage` → `{month_spent_cny,month_reserved_cny,monthly_limit_cny,entries:[]}`；`GET /api/admin/diagnostics` → `{mode,providers,storage,ffmpeg_available,recent_errors,backup}`；`POST /api/admin/diagnostics/tts {text}` → `{job_id}`。
 - `POST /api/participant/exchange {token}` → `{session_id}`；`GET /api/participant/session` → Detail。
@@ -85,4 +85,7 @@ decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/ne
 - 报告首次处理将研究、轮次、来源修订号及观察局限冻结到任务内部；普通响应不暴露该内部快照。重试保持相同输入并复用已完成检查点，后续修改使报告 `source_updated` 为 true。结束或跳过也更新会话修订号。
 - 长报告每段提取后进行分层汇总；引用既须匹配原文，又须完整复用前一级已有引文。无效结果仅允许一次结构修复，修复仍失败返回 REPORT_INVALID，不写入正式报告。汇总材料超过当前 64,000 字符保护上限返回 REPORT_CONTEXT_TOO_LARGE，档案保留且不截断；旧任务缺少冻结来源时返回 REPORT_SOURCE_SNAPSHOT_MISSING，应创建新报告。
 - 人工重试 REPORT_INVALID 时，只移除失败步骤及其修复结果的内部检查点；成功步骤与来源快照保留，既有费用账本不改写，重新请求继续独立记账。未知计费重试仍须明确确认。
+- 管理端重试状态未知报告，或存在状态未知报告时另建报告，服务端必须收到 `accept_possible_charge:true`，否则返回 CHARGE_CONFIRMATION_REQUIRED。检查不依赖页面内存，刷新后仍有效。重复幂等请求返回同一任务；存在排队／执行中的报告时返回 REPORT_BUSY，不追加任务。请求事件保留是否重试及费用确认结果，原未知账本不改写。
+- 管理页从持久任务列表恢复处理中报告的轮询；失败报告可在处理记录中重试，未知费用的勾选默认未选。请求进行中不允许重复生成。
+- 重启恢复将中断的在途请求标为 external_status_unknown 并记录失败事件。报告失败不阻止已结束场次成为 completed；访谈中其他处理请求状态未知则暂停场次。已持久保存的响应检查点继续用于后续处理，不重复调用供应商。
 - 研究局限由程序加入提前结束、未确认文本、文字输入、音频文件缺失／哈希损坏等实际观察，位于报告前部。永久保存不存在正常的“录音到期”分支。每一类发现缺乏依据时明确显示尚缺乏依据。

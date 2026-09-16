@@ -27,6 +27,28 @@ def test_restart_marks_deleted_inflight_reservation_unknown(database):
         assert db.get(Job, "j0") is None
 
 
+def test_recovery_pauses_unknown_interview_job_and_emits_one_durable_failure(database):
+    from app.billing import reserve
+    from app.models import Event
+
+    with database.transaction() as db:
+        session = db.get(InterviewSession, "s0")
+        session.status = "in_progress"
+        job = db.get(Job, "j0")
+        job.kind, job.status, job.call_started, job.attempt = "decide", "running", True, 1
+        reserve(db, database.settings, job, 400000)
+    worker = Worker(database, database.settings)
+    worker.recover(startup=True)
+    worker.recover(startup=True)
+    with database.read() as db:
+        session = db.get(InterviewSession, "s0")
+        assert session.status == "paused" and session.pause_reason == "provider_error"
+        events = list(db.scalars(select(Event).where(Event.session_id == "s0", Event.type == "job.failed")))
+        assert len(events) == 1 and events[0].payload["code"] == "EXTERNAL_STATUS_UNKNOWN"
+        assert db.get(Job, "j0").status == "external_status_unknown"
+        assert len(list(db.scalars(select(Ledger).where(Ledger.job_id == "j0")))) == 1
+
+
 @pytest.mark.parametrize("outcome", ["success", "unknown", "failed"])
 def test_withdraw_during_paid_call_settles_bill_without_restoring_content(database, outcome):
     with database.transaction() as db:

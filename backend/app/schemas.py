@@ -85,3 +85,8 @@ class ControlInput(StrictModel):
 
 class BudgetInput(StrictModel):
     budget_cny: Decimal = Field(gt=0, le=10000, decimal_places=2)
+
+
+class ReportInput(StrictModel):
+    retry_job_id: str | None = Field(default=None, min_length=1, max_length=32)
+    accept_possible_charge: bool = False

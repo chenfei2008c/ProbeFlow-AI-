@@ -43,7 +43,15 @@ from app.models import (
     Turn,
     UploadChunk,
 )
-from app.schemas import BudgetInput, ControlInput, FinalizeInput, StudyInput, TextInput, TurnInput
+from app.schemas import (
+    BudgetInput,
+    ControlInput,
+    FinalizeInput,
+    ReportInput,
+    StudyInput,
+    TextInput,
+    TurnInput,
+)
 from app.security import authenticate, digest
 from app.provenance import LABELS, archive_mode
 
@@ -69,6 +77,24 @@ def busy(db, sid):
         )
         is not None
     )
+
+
+def requeue_job(job, sid, accept_possible_charge):
+    if not job or job.session_id != sid or job.status not in {"failed", "external_status_unknown"}:
+        raise AppError("JOB_NOT_RETRYABLE", "该任务不能重试", 409)
+    if job.status == "external_status_unknown" and not accept_possible_charge:
+        raise AppError("CHARGE_CONFIRMATION_REQUIRED", "上次请求可能已计费，重试需要明确确认", 409)
+    if job.kind == "report" and job.error_code == "REPORT_INVALID":
+        payload = dict(job.payload)
+        invalid_step = payload.pop("_report_invalid_step", None)
+        if invalid_step:
+            checkpoints = dict((job.result or {}).get("_checkpoints", {}))
+            checkpoints.pop(invalid_step, None)
+            checkpoints.pop(invalid_step + "-repair", None)
+            job.result = {**(job.result or {}), "_checkpoints": checkpoints}
+            job.payload = payload
+    job.status, job.error_code, job.error_message, job.call_started = "queued", None, None, False
+    job.lease_until, job.lease_token, job.finished_at = None, None, None
 
 
 def register_session_routes(app, database, settings):
@@ -393,32 +419,7 @@ def register_session_routes(app, database, settings):
                     result["job_id"] = job.id
                 elif body.action == "retry":
                     job = db.get(Job, body.job_id)
-                    if (
-                        not job
-                        or job.session_id != session.id
-                        or job.status not in {"failed", "external_status_unknown"}
-                    ):
-                        raise AppError("JOB_NOT_RETRYABLE", "该任务不能重试", 409)
-                    if job.status == "external_status_unknown" and not body.accept_possible_charge:
-                        raise AppError(
-                            "CHARGE_CONFIRMATION_REQUIRED", "上次请求可能已计费，重试需要明确确认", 409
-                        )
-                    if job.kind == "report" and job.error_code == "REPORT_INVALID":
-                        payload = dict(job.payload)
-                        invalid_step = payload.pop("_report_invalid_step", None)
-                        if invalid_step:
-                            checkpoints = dict((job.result or {}).get("_checkpoints", {}))
-                            checkpoints.pop(invalid_step, None)
-                            checkpoints.pop(invalid_step + "-repair", None)
-                            job.result = {**(job.result or {}), "_checkpoints": checkpoints}
-                            job.payload = payload
-                    job.status, job.error_code, job.error_message, job.call_started = (
-                        "queued",
-                        None,
-                        None,
-                        False,
-                    )
-                    job.lease_until, job.lease_token = None, None
+                    requeue_job(job, session.id, body.accept_possible_charge)
                     session.pause_reason = None
                     if session.status == "paused":
                         session.status = "in_progress"
@@ -512,13 +513,57 @@ def register_session_routes(app, database, settings):
             )
 
     @app.post("/api/admin/sessions/{sid}/reports")
-    def generate_report(sid: str, request: Request):
+    def generate_report(sid: str, request: Request, body: ReportInput | None = None):
+        body = body or ReportInput()
         with database.transaction() as db:
             auth = authenticate(db, request, "admin")
-            require_session(db, sid, consent=True)
-            return idempotent(
-                db, request, auth.subject_id, {}, lambda: {"job_id": enqueue(db, "report", {}, sid).id}, sid
-            )
+            session = require_session(db, sid, consent=True)
+
+            def operation():
+                active = db.scalar(
+                    select(Job.id)
+                    .where(Job.session_id == sid, Job.kind == "report", Job.status.in_(["queued", "running"]))
+                    .limit(1)
+                )
+                if active:
+                    raise AppError("REPORT_BUSY", "已有报告任务正在处理，请等待完成后再操作", 409)
+                if body.retry_job_id:
+                    job = db.get(Job, body.retry_job_id)
+                    if not job or job.kind != "report":
+                        raise AppError("JOB_NOT_RETRYABLE", "只能重试本场失败的报告任务", 409)
+                    uncertain = [job.id] if job.status == "external_status_unknown" else []
+                    requeue_job(job, sid, body.accept_possible_charge)
+                else:
+                    uncertain = list(
+                        db.scalars(
+                            select(Job.id).where(
+                                Job.session_id == sid,
+                                Job.kind == "report",
+                                Job.status == "external_status_unknown",
+                            )
+                        )
+                    )
+                    if uncertain and not body.accept_possible_charge:
+                        raise AppError(
+                            "CHARGE_CONFIRMATION_REQUIRED",
+                            "旧报告请求可能已计费，新建报告需明确确认可能重复计费",
+                            409,
+                        )
+                    job = enqueue(db, "report", {}, sid)
+                emit(
+                    db,
+                    session,
+                    "report.requested",
+                    {
+                        "job_id": job.id,
+                        "retry": bool(body.retry_job_id),
+                        "accept_possible_charge": body.accept_possible_charge,
+                        "uncertain_job_ids": uncertain,
+                    },
+                )
+                return {"job_id": job.id}
+
+            return idempotent(db, request, auth.subject_id, body.model_dump(), operation, sid)
 
     @app.post("/api/admin/sessions/{sid}/budget")
     def change_budget(sid: str, body: BudgetInput, request: Request):

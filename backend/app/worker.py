@@ -156,6 +156,8 @@ class Worker:
                         )
                     job.status, job.error_code = "external_status_unknown", "EXTERNAL_STATUS_UNKNOWN"
                     job.error_message = "服务重启前的请求可能已经计费，请确认后重试"
+                    job.finished_at = time.time()
+                    self._record_session_failure(db, job)
                 else:
                     job.status = "queued"
                 job.lease_until, job.lease_token = None, None
@@ -212,21 +214,26 @@ class Worker:
                 job.error_code = getattr(exc, "code", "PROCESSING_FAILED")
                 job.error_message = getattr(exc, "message", "处理失败，资料已保留，请重试或联系研究者")
                 job.lease_until, job.lease_token, job.finished_at = None, None, time.time()
-                if job.session_id:
-                    session = db.get(InterviewSession, job.session_id)
-                    if session and session.status not in DELETED:
-                        if job.kind == "report" and session.status == "finalizing":
-                            session.status = "completed"
-                        elif job.kind != "report" and session.status not in {"completed", "finalizing"}:
-                            session.status = "paused"
-                            session.pause_reason = {
-                                "BUDGET_EXCEEDED": "budget_exceeded",
-                                "CONSENT_REQUIRED": "consent_required",
-                                "CONTEXT_TOO_LARGE": "context_limit",
-                                "STORAGE_FULL": "storage_full",
-                            }.get(job.error_code, "provider_error")
-                        emit(db, session, "job.failed", {"job_id": job.id, "code": job.error_code})
+                self._record_session_failure(db, job)
         return True
+
+    def _record_session_failure(self, db, job):
+        if not job.session_id:
+            return
+        session = db.get(InterviewSession, job.session_id)
+        if not session or session.status in DELETED:
+            return
+        if job.kind == "report" and session.status == "finalizing":
+            session.status = "completed"
+        elif job.kind != "report" and session.status not in {"completed", "finalizing"}:
+            session.status = "paused"
+            session.pause_reason = {
+                "BUDGET_EXCEEDED": "budget_exceeded",
+                "CONSENT_REQUIRED": "consent_required",
+                "CONTEXT_TOO_LARGE": "context_limit",
+                "STORAGE_FULL": "storage_full",
+            }.get(job.error_code, "provider_error")
+        emit(db, session, "job.failed", {"job_id": job.id, "code": job.error_code})
 
     def _current(self, db, job_id, token):
         job = db.get(Job, job_id)
