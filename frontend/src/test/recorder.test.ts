@@ -94,3 +94,42 @@ test('page hide and network loss trigger recorder safety pause', () => {
   expect(pause).toHaveBeenNthCalledWith(2, '网络已断开，录音已安全暂停')
   unbind()
 })
+
+test('withdrawal waits for the final recorder event and local writes without waiting for the network', async () => {
+  let recorder!: EventTarget
+  class FakeRecorder extends EventTarget {
+    static isTypeSupported() { return true }
+    state = 'inactive'
+    constructor() { super(); recorder = this }
+    start() { this.state = 'recording' }
+    stop() { this.state = 'inactive' }
+  }
+  vi.stubGlobal('MediaRecorder', FakeRecorder)
+  try {
+    let persist!: () => void
+    const writing = new Promise<void>(resolve => { persist = resolve })
+    const saved: Blob[] = []
+    const coordinator = new RecordingCoordinator({
+      consented: true,
+      storage: { usage: async () => 0, put: async chunk => { await writing; saved.push(chunk.blob) }, remove: vi.fn(), list: async () => [] },
+      upload: () => new Promise(() => {}),
+    })
+    await coordinator.start({ getTracks: () => [] } as unknown as MediaStream, 'new-unpolled-turn')
+    coordinator.stop()
+    let settled = false
+    const stopping = coordinator.stopAndPreserve().then(() => { settled = true })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    const finalChunk = new Blob(['final fictional audio'])
+    const data = new Event('dataavailable')
+    Object.defineProperty(data, 'data', { value: finalChunk })
+    recorder.dispatchEvent(data)
+    recorder.dispatchEvent(new Event('stop'))
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    persist()
+    await stopping
+    expect(saved).toEqual([finalChunk])
+    expect(coordinator.currentTurnId).toBe('new-unpolled-turn')
+  } finally { vi.unstubAllGlobals() }
+})

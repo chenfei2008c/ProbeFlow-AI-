@@ -56,6 +56,7 @@ export class RecordingCoordinator {
   private stopped = false
   private pending = new Set<Promise<void>>()
   private uploading?: Promise<void>
+  private stopping?: Promise<void>
   readonly hashes: ChunkAck[] = []
 
   constructor(private options: CoordinatorOptions) {}
@@ -72,6 +73,7 @@ export class RecordingCoordinator {
     this.turnId = turnId
     this.stream = stream
     this.stopped = false
+    this.stopping = undefined
     this.seq = 0
     const mimeType = detectRecorderMimeType()
     this.recorder = new MediaRecorder(stream, { mimeType })
@@ -85,7 +87,22 @@ export class RecordingCoordinator {
 
   stop() {
     this.stopped = true
-    if (this.recorder?.state === 'recording') this.recorder.stop()
+    if (this.recorder?.state === 'recording') {
+      this.stopping = new Promise<void>(resolve => {
+        this.recorder!.addEventListener('stop', () => resolve(), { once: true })
+      })
+      this.recorder.stop()
+    }
+  }
+
+  async stopAndPreserve() {
+    this.stop()
+    await this.stopping
+    // The final dataavailable event precedes stop. Settle its local writes so
+    // withdrawal cleanup cannot run first and leave a late browser chunk behind.
+    // Keep stored chunks if the server rejects withdrawal; network completion
+    // is not needed to stop recording or withdraw.
+    await Promise.allSettled([...this.pending])
   }
 
   safetyPause(reason: string) {
@@ -135,12 +152,8 @@ export class RecordingCoordinator {
   }
 
   async stopAndFlush() {
-    if (this.recorder?.state === 'recording') {
-      await new Promise<void>(resolve => {
-        this.recorder!.addEventListener('stop', () => resolve(), { once: true })
-        this.stop()
-      })
-    }
+    this.stop()
+    await this.stopping
     return this.flush()
   }
 

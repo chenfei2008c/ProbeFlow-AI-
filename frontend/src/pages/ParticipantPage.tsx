@@ -3,11 +3,12 @@ import { ApiError, apiRequest, retryApiRequest } from '../lib/api'
 import { duration, actionLabel, pauseLabel } from '../lib/format'
 import { exchangeInviteFragment } from '../lib/invite'
 import { bindRecordingSafety, detectRecorderMimeType, indexedChunkStorage, RecordingCoordinator, sha256, stopMediaStream, StoredChunk } from '../lib/recorder'
-import { manualTranscriptTurnId } from '../lib/participantRecovery'
+import { confirmWithdrawal, manualTranscriptTurnId } from '../lib/participantRecovery'
 import { sessionTimeBoundary } from '../lib/sessionSafety'
 import { Config, Detail, Job, Turn } from '../types'
 import { ConsentGate } from '../components/ConsentGate'
 import { RenewConsent } from '../components/RenewConsent'
+import { WithdrawalComplete } from '../components/WithdrawalComplete'
 import { ArchiveNotice, ErrorPanel, JobNotice, Loading, ModeBadge, StatusBadge } from '../components/Common'
 
 type Screen = 'opening' | 'consent' | 'device' | 'interview' | 'finished' | 'withdrawn'
@@ -20,6 +21,7 @@ export function ParticipantPage({ config: initialConfig }: { config: Config }) {
   const [error, setError] = useState<ApiError | Error>()
   const [syncIssue, setSyncIssue] = useState('')
   const [micStream, setMicStream] = useState<MediaStream>()
+  const [withdrawnTurnIds, setWithdrawnTurnIds] = useState<string[]>([])
   const cursor = useRef(0)
 
   const load = useCallback(async () => {
@@ -89,8 +91,15 @@ export function ParticipantPage({ config: initialConfig }: { config: Config }) {
     catch { setError(new Error('无法访问麦克风。请在浏览器地址栏的网站设置中允许麦克风，或改用文字回答。')) }
   }
   if (screen === 'opening') return <ParticipantFrame config={config}><Loading label="正在安全打开邀请…" /></ParticipantFrame>
-  const finishScreen = (withdrawn = false) => { releaseMic(); if (withdrawn) setDetail(undefined); setScreen(withdrawn ? 'withdrawn' : 'finished') }
-  if (screen === 'withdrawn') return <ParticipantFrame config={config}><section className="finished-card"><h1>本场访谈已撤回</h1><p>已删除本系统内的访谈资料，并撤销访问凭证。供应商侧数据依其实际政策处理。</p></section></ParticipantFrame>
+  const finishScreen = (withdrawn = false, activeTurnId?: string) => {
+    releaseMic()
+    if (withdrawn) {
+      setWithdrawnTurnIds([...new Set([...(detail?.turns.map(turn => turn.id) ?? []), ...(activeTurnId ? [activeTurnId] : [])])])
+      setDetail(undefined)
+    }
+    setScreen(withdrawn ? 'withdrawn' : 'finished')
+  }
+  if (screen === 'withdrawn') return <ParticipantFrame config={config}><WithdrawalComplete turnIds={withdrawnTurnIds} /></ParticipantFrame>
   if (screen === 'finished' && detail) return <ParticipantFrame config={config}><Finished detail={detail} reload={load} onWithdrawn={() => finishScreen(true)} /></ParticipantFrame>
   if (screen === 'consent') return <ParticipantFrame config={config}><div className="consent-wrap">{error && <ErrorPanel error={error} />}<div className="mode-switch"><button className={mode === 'voice' ? 'active' : ''} onClick={() => setMode('voice')}>语音访谈</button><button className={mode === 'text' ? 'active' : ''} onClick={() => setMode('text')}>文字访谈</button></div><ConsentGate key={config.consent_version} mode={mode} providers={config.providers} study={detail?.study} mock={config.mode === 'mock'} onSubmit={consent} /></div></ParticipantFrame>
   if (screen === 'device') return <ParticipantFrame config={config}><section className="device-check"><div className="device-icon">◉</div><div className="eyebrow">设备检查</div><h1>先确认麦克风可用</h1><p>浏览器会请求麦克风权限，但现在不会录音。每轮只有在你点击“开始回答”后才会录制。</p>{error && <ErrorPanel error={error} />}<button className="button primary wide" onClick={checkMic}>检查麦克风</button><button className="button ghost wide" onClick={async () => { setMode('text'); setScreen('consent') }}>改用文字回答</button><div className="safety-line"><span>✓</span> 未开始回答前不会录制任何声音</div></section></ParticipantFrame>
@@ -101,7 +110,7 @@ function ParticipantFrame({ config, children }: { config: Config; children: Reac
   return <div className="participant-page"><header className="participant-header"><div className="brand"><span className="brand-mark">P</span><span>ProbeFlow</span></div><ModeBadge mode={config.mode} /></header><main>{children}</main><footer>AI 主持 · 你可以跳过任何问题、暂停或结束访谈</footer></div>
 }
 
-function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reload, onFinished }: { detail: Detail; micStream?: MediaStream; requestMic: () => Promise<MediaStream>; releaseMic: () => void; syncIssue: string; reload: () => Promise<void>; onFinished: (withdrawn?: boolean) => void }) {
+function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reload, onFinished }: { detail: Detail; micStream?: MediaStream; requestMic: () => Promise<MediaStream>; releaseMic: () => void; syncIssue: string; reload: () => Promise<void>; onFinished: (withdrawn?: boolean, activeTurnId?: string) => void }) {
   const [text, setText] = useState('')
   const [answerMode, setAnswerMode] = useState(detail.session.mode)
   const [answerDraft, setAnswerDraft] = useState({ text: '', questionId: '' })
@@ -249,20 +258,22 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     } catch (value) { setError(value as Error) } finally { setBusy(false) }
   }
   const finish = async (withdraw = false) => {
-    const prompt = withdraw ? '撤回会删除本场已提交的录音、文字、修订、报告与引用。确定继续吗？' : '确定结束访谈并保留已提交内容吗？'
-    if (!window.confirm(prompt)) return
-    if (withdraw && !window.confirm('请再次确认：撤回后本场内容将不可访问。')) return
+    if (busy || !(withdraw ? confirmWithdrawal() : window.confirm('确定结束访谈并保留已提交内容吗？'))) return
+    setError(undefined)
     try {
       if (withdraw) {
-        coordinator.current?.stop(); releaseMic(); setRecording(false)
+        setBusy(true)
+        const stopped = coordinator.current?.stopAndPreserve()
+        releaseMic(); setRecording(false)
+        await stopped
         await apiRequest('/api/participant/control', { method: 'POST', body: { action: 'withdraw' } })
-        for (const turn of detail.turns) for (const chunk of await indexedChunkStorage.list(turn.id)) await indexedChunkStorage.remove(turn.id, chunk.seq)
-        onFinished(true)
+        onFinished(true, coordinator.current?.currentTurnId)
       } else {
         if (recording && !await finishRecording()) return
+        setBusy(true)
         await control('end'); releaseMic(); onFinished()
       }
-    } catch (value) { setError(value as Error) }
+    } catch (value) { setError(value as Error) } finally { setBusy(false) }
   }
   const retry = async (job: Job, accept: boolean) => { await control('retry', { job_id: job.id, accept_possible_charge: accept }) }
   const pauseInterview = async () => {
@@ -327,20 +338,21 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
       </form>}
     </section>}
 
-    <div className="interview-actions"><button className="button ghost" disabled={busy} onClick={pauseInterview}>暂停</button><button className="button ghost" disabled={busy || recording || Boolean(unfinished)} onClick={() => control('skip')}>跳过这题</button><button className="text-button danger-text" disabled={busy} onClick={() => finish(false)}>结束并保留</button><button className="text-button danger-text" onClick={() => finish(true)}>撤回并删除</button></div>
+    <div className="interview-actions"><button className="button ghost" disabled={busy} onClick={pauseInterview}>暂停</button><button className="button ghost" disabled={busy || recording || Boolean(unfinished)} onClick={() => control('skip')}>跳过这题</button><button className="text-button danger-text" disabled={busy} onClick={() => finish(false)}>结束并保留</button><button className="text-button danger-text" disabled={busy} onClick={() => finish(true)}>撤回并删除</button></div>
   </div>
 }
 
 function Finished({ detail, reload, onWithdrawn }: { detail: Detail; reload: () => Promise<void>; onWithdrawn: () => void }) {
   const [error, setError] = useState<Error>()
+  const [busy, setBusy] = useState(false)
   const withdraw = async () => {
-    if (!window.confirm('撤回将删除本场已提交内容，即使访谈已结束也无法恢复。确定撤回吗？')) return
+    if (busy || !confirmWithdrawal()) return
+    setBusy(true); setError(undefined)
     try {
       await apiRequest('/api/participant/control', { method: 'POST', body: { action: 'withdraw' } })
-      for (const turn of detail.turns) for (const chunk of await indexedChunkStorage.list(turn.id)) await indexedChunkStorage.remove(turn.id, chunk.seq)
       onWithdrawn()
-    } catch (value) { setError(value as Error) }
+    } catch (value) { setError(value as Error) } finally { setBusy(false) }
   }
   const withdrawn = detail.session.status === 'withdrawn'
-  return <section className="finished-card"><div className="finish-mark">{withdrawn ? '×' : '✓'}</div><div className="eyebrow">访谈已{withdrawn ? '撤回' : '结束'}</div><h1>{withdrawn ? '本场资料正在按撤回流程删除' : '感谢你分享这些经历'}</h1><p>{withdrawn ? '新的处理请求已停止，访问凭证已撤销。供应商侧数据依其实际政策处理。' : '你已提交的内容会按说明永久保存。结束访谈不会自动删除资料。'}</p><RenewConsent detail={detail} reload={reload} />{error && <ErrorPanel error={error} />}{!withdrawn && <><button className="button ghost" onClick={reload}>检查处理状态</button><button className="text-button danger-text" onClick={withdraw}>撤回并删除本场内容</button></>}</section>
+  return <section className="finished-card"><div className="finish-mark">{withdrawn ? '×' : '✓'}</div><div className="eyebrow">访谈已{withdrawn ? '撤回' : '结束'}</div><h1>{withdrawn ? '本场资料正在按撤回流程删除' : '感谢你分享这些经历'}</h1><p>{withdrawn ? '新的处理请求已停止，访问凭证已撤销。供应商侧数据依其实际政策处理。' : '你已提交的内容会按说明永久保存。结束访谈不会自动删除资料。'}</p>{!busy && <RenewConsent detail={detail} reload={reload} />}{error && <ErrorPanel error={error} />}{!withdrawn && <><button className="button ghost" disabled={busy} onClick={reload}>检查处理状态</button><button className="text-button danger-text" disabled={busy} onClick={withdraw}>{busy ? '正在撤回…' : '撤回并删除本场内容'}</button></>}</section>
 }
