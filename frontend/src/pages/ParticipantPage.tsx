@@ -7,7 +7,8 @@ import { manualTranscriptTurnId } from '../lib/participantRecovery'
 import { sessionTimeBoundary } from '../lib/sessionSafety'
 import { Config, Detail, Job, Turn } from '../types'
 import { ConsentGate } from '../components/ConsentGate'
-import { ErrorPanel, JobNotice, Loading, ModeBadge, StatusBadge } from '../components/Common'
+import { RenewConsent } from '../components/RenewConsent'
+import { ArchiveNotice, ErrorPanel, JobNotice, Loading, ModeBadge, StatusBadge } from '../components/Common'
 
 type Screen = 'opening' | 'consent' | 'device' | 'interview' | 'finished' | 'withdrawn'
 
@@ -241,6 +242,7 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     } catch (value) { setError(value as Error) } finally { setBusy(false) }
   }
   return <div className="interview-shell">
+    {detail.turns.length > 0 && <ArchiveNotice mode={detail.archive_mode} />}
     {syncIssue && <div className="warning-banner" role="status">{syncIssue}</div>}
     {manualTurnId && <section className="answer-card"><h2>改为手动录入</h2><p>识别失败后，原始录音仍保留。你可以输入并确认本轮内容；这不会重新调用语音识别。上次请求的未知费用仍保留记录。</p><textarea className="transcript-editor" aria-label="手动录入本轮回答" rows={5} value={manualText} onChange={event => setManualText(event.target.value)} /><button className="button primary" disabled={busy || !manualText.trim()} onClick={confirmManual}>确认手动文字</button></section>}
     <div className="interview-meta"><div><span className="live-dot" />{paused ? '访谈已暂停' : '访谈进行中'}</div><div>{duration(detail.session.active_seconds)} <small>/ {duration(targetSeconds)}</small></div></div>
@@ -263,5 +265,5 @@ function Finished({ detail, reload, onWithdrawn }: { detail: Detail; reload: () 
     } catch (value) { setError(value as Error) }
   }
   const withdrawn = detail.session.status === 'withdrawn'
-  return <section className="finished-card"><div className="finish-mark">{withdrawn ? '×' : '✓'}</div><div className="eyebrow">访谈已{withdrawn ? '撤回' : '结束'}</div><h1>{withdrawn ? '本场资料正在按撤回流程删除' : '感谢你分享这些经历'}</h1><p>{withdrawn ? '新的处理请求已停止，访问凭证已撤销。供应商侧数据依其实际政策处理。' : '你已提交的内容会按说明永久保存。结束访谈不会自动删除资料。'}</p>{error && <ErrorPanel error={error} />}{!withdrawn && <><button className="button ghost" onClick={reload}>检查处理状态</button><button className="text-button danger-text" onClick={withdraw}>撤回并删除本场内容</button></>}</section>
+  return <section className="finished-card"><div className="finish-mark">{withdrawn ? '×' : '✓'}</div><div className="eyebrow">访谈已{withdrawn ? '撤回' : '结束'}</div><h1>{withdrawn ? '本场资料正在按撤回流程删除' : '感谢你分享这些经历'}</h1><p>{withdrawn ? '新的处理请求已停止，访问凭证已撤销。供应商侧数据依其实际政策处理。' : '你已提交的内容会按说明永久保存。结束访谈不会自动删除资料。'}</p><RenewConsent detail={detail} reload={reload} />{error && <ErrorPanel error={error} />}{!withdrawn && <><button className="button ghost" onClick={reload}>检查处理状态</button><button className="text-button danger-text" onClick={withdraw}>撤回并删除本场内容</button></>}</section>
 }

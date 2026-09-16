@@ -49,3 +49,39 @@ def test_provider_or_mode_change_requires_new_consent_before_any_external_call(a
         assert db.scalar(select(Job).where(Job.session_id == sid)).status == "queued"
     app.state.settings.interview_base_url = "https://another-recipient.invalid/v1"
     assert participant.get("/api/config").json()["consent_version"] != new_version
+
+
+def test_completed_session_can_renew_processing_consent_without_reopening_interview(admin, app):
+    from test_interview_flow import consent_and_start, drain
+
+    participant, sid, _ = consent_and_start(admin, app)
+    assert (
+        participant.post("/api/participant/control", json={"action": "end"}, headers=headers()).status_code
+        == 200
+    )
+    drain(app)
+    before = admin.get(f"/api/admin/sessions/{sid}").json()
+    app.state.settings.report_base_url = "https://changed-recipient.invalid/v1"
+    assert admin.post(f"/api/admin/sessions/{sid}/reports", headers=headers()).status_code == 403
+    assert admin.get(f"/api/admin/sessions/{sid}/export").status_code == 200
+    version = participant.get("/api/config").json()["consent_version"]
+    response = participant.post(
+        "/api/participant/consent",
+        json={"version": version, "mode": "text", "processing": True, "permanent": True},
+        headers=headers(),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json().get("job_id") is None
+    after = admin.get(f"/api/admin/sessions/{sid}").json()
+    assert after["session"]["status"] == "completed"
+    assert after["turns"] == before["turns"] and after["reports"] == before["reports"]
+    assert len(after["jobs"]) == len(before["jobs"])
+    assert (
+        participant.post(
+            "/api/participant/turns", json={"input_mode": "text", "text": "不能重新开场"}, headers=headers()
+        ).status_code
+        == 409
+    )
+    assert admin.post(f"/api/admin/sessions/{sid}/reports", headers=headers()).status_code == 200
+    drain(app)
+    assert len(admin.get(f"/api/admin/sessions/{sid}").json()["reports"]) == 2

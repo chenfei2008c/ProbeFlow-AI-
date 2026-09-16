@@ -44,6 +44,7 @@ from app.models import (
 )
 from app.schemas import BudgetInput, ControlInput, FinalizeInput, StudyInput, TextInput, TurnInput
 from app.security import authenticate, digest
+from app.provenance import LABELS, archive_mode
 
 
 def participant_turn(db, request, turn_id, active=False):
@@ -553,19 +554,20 @@ def register_session_routes(app, database, settings):
         with database.read() as db:
             authenticate(db, request, "admin")
             data = detail(db, require_session(db, sid), settings)
-        marker = "模拟结果（不代表真实访谈或模型质量）" if settings.mode == "mock" else "真实访谈记录"
+        marker = LABELS[data["archive_mode"]]
+        data.pop("providers", None)
         metadata = {
-            "mode": settings.mode,
+            "mode": data["archive_mode"],
+            "runtime_mode": settings.mode,
             "label": marker,
             "retention": "permanent",
             "prompt_version": "V1.1",
-            "providers": settings.public_providers(),
             "exported_at": iso(time.time()),
         }
         if format == "json":
             data.pop("jobs", None)
             content, mime, suffix = (
-                json.dumps({**metadata, **data}, ensure_ascii=False, indent=2),
+                json.dumps({**data, **metadata}, ensure_ascii=False, indent=2),
                 "application/json",
                 "json",
             )
@@ -582,7 +584,7 @@ def register_session_routes(app, database, settings):
                         text = "'" + text
                     writer.writerow(
                         [
-                            marker,
+                            LABELS[archive_mode([revision["provenance"]])],
                             turn["seq"],
                             turn["id"],
                             revision["id"],
@@ -609,9 +611,7 @@ def register_session_routes(app, database, settings):
             for turn in data["turns"]:
                 content += f"### {turn['seq']} · {turn['role']}\n\n"
                 for number, revision in enumerate(turn["revisions"], 1):
-                    content += (
-                        f"文本版本 {number} · {revision['source']}\n\n{render_text(revision['text'])}\n\n"
-                    )
+                    content += f"文本版本 {number} · {revision['source']} · {LABELS[archive_mode([revision['provenance']])]}\n\n{render_text(revision['text'])}\n\n"
             mime, suffix = "text/markdown", "md"
         else:
             raise AppError("INVALID_FORMAT", "导出格式仅支持 json、csv、markdown")

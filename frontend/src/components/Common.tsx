@@ -1,10 +1,20 @@
 import { ReactNode, useEffect, useState } from 'react'
 import { ApiError } from '../lib/api'
 import { statusLabel, jobLabel } from '../lib/format'
-import { AppMode, Job } from '../types'
+import { AppMode, ArchiveMode, Job } from '../types'
 
 export function ModeBadge({ mode }: { mode: AppMode }) {
   return <span className={`mode-badge ${mode}`}>{mode === 'mock' ? '模拟模式 · 输出不可用于质量判断' : '真实服务模式'}</span>
+}
+
+export function ArchiveNotice({ mode = 'unknown' }: { mode?: ArchiveMode }) {
+  if (mode === 'live') return null
+  const message = {
+    mock: '模拟结果：仅用于验证界面与流程，不代表真实访谈质量。',
+    mixed: '混合来源档案：包含模拟或来源未确认内容，不可作为真实质量验收依据。',
+    unknown: '来源未确认：历史档案缺少来源记录，不可作为真实质量验收依据。',
+  }[mode]
+  return <div className="mock-warning" role="note">{message}</div>
 }
 
 export function StatusBadge({ status }: { status: string }) {

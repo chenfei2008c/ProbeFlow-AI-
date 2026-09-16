@@ -141,6 +141,7 @@ class Revision(Identity, Base):
     text: Mapped[str] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(32))
     editor: Mapped[str] = mapped_column(String(32))
+    provenance: Mapped[dict] = mapped_column(JSON, default=dict)
     previous_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
@@ -157,6 +158,7 @@ class Asset(Identity, Base):
     byte_size: Mapped[int] = mapped_column(Integer)
     duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     source: Mapped[str] = mapped_column(String(16))
+    provenance: Mapped[dict] = mapped_column(JSON, default=dict)
     retention: Mapped[str] = mapped_column(String(16), default="permanent")
     expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     segments: Mapped[list] = mapped_column(JSON, default=list)
@@ -247,6 +249,7 @@ class Report(Identity, Base):
     source_revision: Mapped[int] = mapped_column(Integer)
     body: Mapped[dict] = mapped_column(JSON)
     markdown: Mapped[str] = mapped_column(Text)
+    provenance: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Citation(Identity, Base):

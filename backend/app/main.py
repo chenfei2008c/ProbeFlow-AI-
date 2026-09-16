@@ -16,6 +16,7 @@ from app.domain import (
     emit,
     enqueue,
     idempotent,
+    invite_view,
     iso,
     micro,
     require_session,
@@ -251,6 +252,40 @@ def create_app(settings: Settings | None = None):
 
             return idempotent(db, request, auth.subject_id, body, operation)
 
+    @app.get("/api/admin/studies/{study_id}/invites")
+    def list_invites(study_id: str, request: Request):
+        with database.read() as db:
+            authenticate(db, request, "admin")
+            if not db.get(Study, study_id):
+                raise AppError("NOT_FOUND", "研究不存在", 404)
+            rows = db.execute(
+                select(Invite, StudyVersion.number)
+                .join(StudyVersion, Invite.study_version_id == StudyVersion.id)
+                .where(StudyVersion.study_id == study_id)
+                .order_by(Invite.created_at.desc())
+            )
+            return [invite_view(invite, number) for invite, number in rows]
+
+    @app.post("/api/admin/studies/{study_id}/invites/{invite_id}/revoke")
+    def revoke_invite(study_id: str, invite_id: str, request: Request):
+        with database.transaction() as db:
+            auth = authenticate(db, request, "admin")
+            invite = db.get(Invite, invite_id)
+            version = db.get(StudyVersion, invite.study_version_id) if invite else None
+            if not invite or not version or version.study_id != study_id:
+                raise AppError("NOT_FOUND", "邀请不存在", 404)
+
+            def operation():
+                if invite.revoked_at is None:
+                    if invite.redeemed_at is not None:
+                        raise AppError(
+                            "INVITE_USED", "邀请已兑换；如需更换访问凭证，请在场次页创建恢复邀请", 409
+                        )
+                    invite.revoked_at = time.time()
+                return invite_view(invite, version.number)
+
+            return idempotent(db, request, auth.subject_id, {}, operation)
+
     @app.post("/api/admin/studies/{study_id}/invites")
     def invite(study_id: str, request: Request):
         with database.transaction() as db:
@@ -267,7 +302,9 @@ def create_app(settings: Settings | None = None):
                     expires_at=time.time() + 7 * 86400,
                 )
                 db.add(row)
+                db.flush()
                 return {
+                    "id": row.id,
                     "url": f"{settings.public_base_url.rstrip('/')}/join#token={token}",
                     "expires_at": iso(row.expires_at),
                 }
@@ -321,8 +358,10 @@ def create_app(settings: Settings | None = None):
             session = require_session(db, auth.subject_id)
             if body.version != settings.consent_version or not body.processing or not body.permanent:
                 raise AppError("CONSENT_REQUIRED", "必须主动接受当前版本的数据处理及永久保存条件", 403)
-            if session.status in TERMINAL:
+            if session.status in TERMINAL - {"completed"}:
                 raise AppError("SESSION_ENDED", "访谈已结束", 409)
+            if session.status == "completed" and body.mode != session.mode:
+                raise AppError("INVALID_MODE", "补充授权不能改变已结束访谈的输入方式", 409)
 
             def operation():
                 if session.status == "pending_consent":
@@ -347,6 +386,9 @@ def create_app(settings: Settings | None = None):
                         snapshot=settings.consent_snapshot(),
                     )
                 )
+                if session.status == "completed":
+                    emit(db, session, "consent.renewed")
+                    return {"session_id": session.id}
                 job = enqueue(db, "decide", {"first": True}, session.id, f"first:{session.id}")
                 for waiting in db.scalars(
                     select(Job).where(

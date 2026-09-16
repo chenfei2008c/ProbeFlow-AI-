@@ -139,6 +139,11 @@ def main():
         sessions.append(sid)
 
     storage = Storage(app.state.db, settings)
+    with sqlite3.connect(app.state.db.path) as db:
+        provenance_before = {
+            table: dict(db.execute(f"SELECT id, provenance FROM {table}"))
+            for table in ("audio_assets", "transcript_revisions", "reports")
+        }
     backup = storage.backup()
     response = admin.delete(f"/api/admin/sessions/{sessions[1]}", headers=headers())
     assert response.status_code == 200
@@ -154,6 +159,13 @@ def main():
         report_count = db.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
         citation_count = db.execute("SELECT COUNT(*) FROM report_citations").fetchone()[0]
         assert revision_count == 5 and report_count == 2 and citation_count == 2
+        provenance_count = 0
+        for table, original in provenance_before.items():
+            for row_id, provenance in db.execute(f"SELECT id, provenance FROM {table}"):
+                assert provenance == original[row_id]
+                assert json.loads(provenance)["mode"] == "mock"
+                provenance_count += 1
+        assert provenance_count == 10
 
     evidence = {
         "mode": "mock",
@@ -168,6 +180,8 @@ def main():
         "restored_text_revisions": revision_count,
         "restored_report_versions": report_count,
         "restored_exact_citations": citation_count,
+        "restored_provenance_records": provenance_count,
+        "all_provenance_snapshots_match": True,
         "restore_validation": recovery,
         "archive_bytes": storage.diagnostics()["formal_bytes"],
         "warning": "提示音与固定转写仅证明软件流程，不代表真人或普通话能力验收。",

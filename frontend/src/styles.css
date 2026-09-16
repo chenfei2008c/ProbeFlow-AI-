@@ -407,3 +407,7 @@ input:focus, textarea:focus, select:focus { border-color: #5f9085; box-shadow: 0
   .detail-tabs button { flex: 1; white-space: nowrap; }
   .settings-grid.lower { grid-template-columns: 1fr; }
 }
+
+.invite-list { display: grid; gap: 12px; }
+.invite-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.invite-row p { color: var(--muted); margin: 6px 0 0; font-size: 13px; }

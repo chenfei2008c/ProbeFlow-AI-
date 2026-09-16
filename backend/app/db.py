@@ -41,7 +41,9 @@ class Database:
         with (
             self.lock,
             Session(
-                self.engine, expire_on_commit=False, info={"consent_version": self.settings.consent_version}
+                self.engine,
+                expire_on_commit=False,
+                info={"consent_version": self.settings.consent_version, "runtime_mode": self.settings.mode},
             ) as session,
         ):
             session.connection().exec_driver_sql("BEGIN IMMEDIATE")
@@ -55,6 +57,8 @@ class Database:
     @contextmanager
     def read(self):
         with Session(
-            self.engine, expire_on_commit=False, info={"consent_version": self.settings.consent_version}
+            self.engine,
+            expire_on_commit=False,
+            info={"consent_version": self.settings.consent_version, "runtime_mode": self.settings.mode},
         ) as session:
             yield session

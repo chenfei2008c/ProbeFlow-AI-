@@ -9,7 +9,8 @@
 - `GET /api/admin/studies` → 数组；`POST /api/admin/studies` → Study；`GET /api/admin/studies/{id}` → Study；`POST /api/admin/studies/{id}/versions` → Study。研究配置：`{title,objective,participant_description,target_minutes,topics:[{id,title,research_question,priority,evidence_type,minutes}],exclusions,glossary:string[],budget_cny,confirm_transcript:true,tone}`，language 固定 zh-CN。Study：`{id,title,archived,current_version_id,version_number,version:<上述配置>,session_count,completed_count,total_cost_cny,updated_at}`。
 - `POST /api/admin/studies/{id}/outline` 输入上述研究配置 → `{job_id}`；`GET /api/admin/jobs/{id}` → Job，提纲结果位于 result，人工编辑后发布。
 - `POST /api/admin/studies/{id}/archive {archived}`；`DELETE /api/admin/studies/{id}`。
-- `POST /api/admin/studies/{id}/invites {}` → `{url,expires_at}`；`POST /api/admin/sessions/{id}/recovery-invite {}` → 同上，绑定原会话并撤销旧凭证。
+- `POST /api/admin/studies/{id}/invites {}` → `{id,url,expires_at}`；`POST /api/admin/sessions/{id}/recovery-invite {}` → `{url,expires_at}`，绑定原会话并撤销旧凭证。
+- `GET /api/admin/studies/{id}/invites` → `{id,version_number,session_id,status,created_at,expires_at,redeemed_at,revoked_at}` 数组，不返回 token／hash；status 为 available/redeemed/revoked/expired。`POST /api/admin/studies/{id}/invites/{invite_id}/revoke {}` 仅撤销未兑换邀请，已兑换返回 INVITE_USED，凭证轮换使用恢复邀请；档案不受影响。
 - `GET /api/admin/studies/{id}/sessions` → Session 数组；`GET /api/admin/sessions/{id}` → Detail；`DELETE /api/admin/sessions/{id}`。
 - `POST /api/admin/sessions/{id}/reports {}` → `{job_id}`；`POST /api/admin/sessions/{id}/budget {budget_cny}`；`POST /api/admin/turns/{id}/revision {text}`。
 - `GET /api/admin/sessions/{id}/export?format=json|csv|markdown` → 附件。
@@ -66,3 +67,11 @@ decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/ne
 - consent_version 为文案版本加处理配置摘要；模拟／真实切换、角色模型／地区／地址改变时失效。每条 Consent 和当前 Session 保留不含凭证的处理快照。
 - /api/media/{id} 在回放前校验完整文件哈希；损坏返回 ARCHIVE_CORRUPTED，文字仍可访问与导出。
 - PRICE_OVERRIDES 按四角色独立配置；付费请求预占与结算使用同一个不可变价格和模式快照，未知模型／地区返回 PRICE_NOT_CONFIGURED。
+
+## 永久档案来源与补充授权
+
+- 当前 `Detail.mode` 仅描述运行环境。`Detail.archive_mode` 和 `Report.archive_mode` 描述档案来源，可为 mock/live/mixed/unknown；未知来源不能按当前环境推断为真实。
+- 文本修订、音频资产、报告持久保存 `provenance: {mode,calls?:[{mode,provider,model,region,role}],source_modes?:[]}`。外部调用来源与检查点一起保存，重试复用检查点时不改写。后续文字修订和报告保留输入来源标识。
+- Turn 返回当前文本 `provenance`、全部 revisions 的 `provenance` 以及可为空的 `audio_provenance`；Report 返回自身 `provenance`。旧数据库缺少这些字段的档案迁移为来源未确认，不补造历史信息。
+- JSON 导出的 `mode` 是档案来源，`runtime_mode` 才是导出时运行环境；来源服务由各条 provenance.calls 记录，不用当前 providers 代替历史供应商。CSV 每个修订带来源标识，Markdown 含总标识及各版本标识。
+- 已完成场次处理配置改变后，既有档案仍可读取、播放及导出，新处理须受访者补充同意。沿用 `/api/participant/consent`，必须保留原输入方式，两项主动勾选；成功只记录新版授权，不重开访谈、不创建下一问、不自动重试旧任务。受访者可通过原凭证或恢复邀请进入结束页查看更新说明。

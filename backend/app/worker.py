@@ -29,6 +29,7 @@ from app.models import (
     uid,
 )
 from app.providers import ASRResult, AudioResult, ProviderError, ProviderSuite, RoleConfig, TextResult, Usage
+from app.provenance import archive_mode, job_provenance
 
 
 class Worker:
@@ -266,6 +267,9 @@ class Worker:
             )
             reservation = reserve(db, self.settings, job, amount, role, prices)
             reservation_id = reservation.id
+            call_provenance = {
+                key: reservation.call_meta[key] for key in ("mode", "provider", "model", "region", "role")
+            }
             job.call_started = True
             job.payload = {**job.payload, "_call_role": role}
             job.lease_until = time.time() + 180
@@ -325,6 +329,7 @@ class Worker:
         with self.database.transaction() as db:
             job = self._current(db, job_id, token)
             encoded = self._encode_result(job, key, result)
+            encoded["provenance"] = call_provenance
             checkpoints = dict((job.result or {}).get("_checkpoints", {}))
             checkpoints[key] = encoded
             job.result = {"_checkpoints": checkpoints}
@@ -397,6 +402,7 @@ class Worker:
                     "action",
                     "topic_id",
                     "input_mode",
+                    "provenance",
                 }
             }
             for row in turns
@@ -474,7 +480,14 @@ class Worker:
                 topic_id=decision.get("topic_id"),
                 confirmed=True,
             )
-            add_text_revision(db, turn, decision["question"], "model", "system")
+            add_text_revision(
+                db,
+                turn,
+                decision["question"],
+                "model",
+                "system",
+                job_provenance(job, "decide", [t["provenance"] for t in turns]),
+            )
             if session.revision == source_revision:
                 topics = {
                     item["id"]: item
@@ -609,6 +622,7 @@ class Worker:
                 byte_size=info.byte_size,
                 duration_seconds=info.duration_seconds,
                 source="tts",
+                provenance=job_provenance(job, "tts"),
             )
             db.add(asset)
             if asset.turn_id:
@@ -647,6 +661,7 @@ class Worker:
                     byte_size=source.stat().st_size,
                     duration_seconds=None,
                     source="recording",
+                    provenance={"mode": db.info["runtime_mode"]},
                 )
                 db.add(asset)
                 db.flush()
@@ -685,7 +700,14 @@ class Worker:
         with self.database.transaction() as db:
             job = self._current(db, job_id, token)
             turn = db.get(Turn, job.payload["turn_id"])
-            add_text_revision(db, turn, "\n".join(texts), "machine_unconfirmed", "system")
+            add_text_revision(
+                db,
+                turn,
+                "\n".join(texts),
+                "machine_unconfirmed",
+                "system",
+                job_provenance(job, "asr", [db.get(Asset, turn.audio_asset_id).provenance]),
+            )
             turn.status = "confirming"
             db.get(Asset, turn.audio_asset_id).segments = ranges
             if not config["confirm_transcript"]:
@@ -738,9 +760,10 @@ class Worker:
         if not any(t["input_mode"] == "voice" for t in turns):
             report["limitations"].append("本场为文字输入，无受访者录音。")
         report = validate_report(report, confirmed)
-        markdown = render_report(report, self.settings.mode)
         with self.database.transaction() as db:
             job = self._current(db, job_id, token)
+            provenance = job_provenance(job, "report", [t["provenance"] for t in turns])
+            markdown = render_report(report, archive_mode([provenance]))
             session = db.get(InterviewSession, job.session_id)
             version = (
                 db.scalar(select(func.max(Report.version)).where(Report.session_id == session.id)) or 0
@@ -752,6 +775,7 @@ class Worker:
                 source_updated=session.revision != source_revision,
                 body=report,
                 markdown=markdown,
+                provenance=provenance,
             )
             db.add(row)
             db.flush()

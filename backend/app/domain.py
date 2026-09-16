@@ -23,6 +23,7 @@ from app.models import (
     uid,
 )
 from app.security import digest
+from app.provenance import archive_mode, origin_modes
 
 TERMINAL = {"completed", "withdrawn", "deleted", "expired"}
 DELETED = {"withdrawn", "deleted"}
@@ -153,6 +154,26 @@ def session_view(session, admin=True):
     return result
 
 
+def invite_view(invite, version_number):
+    status = "available"
+    if invite.revoked_at is not None:
+        status = "revoked"
+    elif invite.redeemed_at is not None:
+        status = "redeemed"
+    elif invite.expires_at <= time.time():
+        status = "expired"
+    return {
+        "id": invite.id,
+        "version_number": version_number,
+        "session_id": invite.session_id,
+        "status": status,
+        "created_at": iso(invite.created_at),
+        "expires_at": iso(invite.expires_at),
+        "redeemed_at": iso(invite.redeemed_at),
+        "revoked_at": iso(invite.revoked_at),
+    }
+
+
 def turn_view(db, turn):
     revisions = list(
         db.scalars(
@@ -178,11 +199,13 @@ def turn_view(db, turn):
         "input_mode": turn.input_mode,
         "text": current.text if current else "",
         "revision_id": turn.revision_id,
+        "provenance": current.provenance if current else {},
         "revisions": [
             {
                 "id": r.id,
                 "text": r.text,
                 "source": r.source,
+                "provenance": r.provenance,
                 "previous_id": r.previous_id,
                 "created_at": iso(r.created_at),
             }
@@ -190,6 +213,7 @@ def turn_view(db, turn):
         ],
         "audio_asset_id": turn.audio_asset_id,
         "audio_status": audio_status,
+        "audio_provenance": asset.provenance if asset else None,
         "action": turn.action,
         "topic_id": turn.topic_id,
         "created_at": iso(turn.created_at),
@@ -222,6 +246,8 @@ def report_view(db, report):
         "source_updated": report.source_updated,
         "body": report.body,
         "markdown": report.markdown,
+        "provenance": report.provenance,
+        "archive_mode": archive_mode([report.provenance]),
         "created_at": iso(report.created_at),
         "citations": [
             {
@@ -265,12 +291,29 @@ def detail(db, session, settings, admin=True):
             reports=[report_view(db, r) for r in reports],
             memory=memory.content if memory else {"topics": [], "unresolved": []},
         )
+    provenances = [r["provenance"] for t in result["turns"] for r in t["revisions"]]
+    provenances.extend(t["audio_provenance"] for t in result["turns"] if t["audio_provenance"] is not None)
+    provenances.extend(r["provenance"] for r in result.get("reports", []))
+    result["archive_mode"] = archive_mode(provenances)
     return result
 
 
-def add_text_revision(db, turn, text, source, editor):
+def add_text_revision(db, turn, text, source, editor, provenance=None):
+    previous = db.get(Revision, turn.revision_id) if turn.revision_id else None
+    provenance = (
+        dict(provenance) if provenance is not None else {"mode": db.info.get("runtime_mode", "unknown")}
+    )
+    if previous:
+        provenance["source_modes"] = sorted(
+            set(provenance.get("source_modes", [])) | origin_modes(previous.provenance)
+        )
     revision = Revision(
-        turn_id=turn.id, text=text, source=source, editor=editor, previous_id=turn.revision_id
+        turn_id=turn.id,
+        text=text,
+        source=source,
+        editor=editor,
+        previous_id=turn.revision_id,
+        provenance=provenance,
     )
     db.add(revision)
     db.flush()

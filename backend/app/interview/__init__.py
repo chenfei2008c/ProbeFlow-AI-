@@ -670,9 +670,10 @@ def render_text(value: Any) -> str:
 
 
 def render_report(report: dict[str, Any], mode: str) -> str:
-    prefix = (
-        "> **模拟结果**：以下内容由确定性测试逻辑生成，不代表真实模型质量。\n\n" if mode == "mock" else ""
-    )
+    from app.provenance import LABELS
+
+    title, separator, description = LABELS.get(mode, LABELS["unknown"]).partition("（")
+    prefix = f"> **{title}**{separator}{description}\n\n" if mode != "live" else ""
     lines = [prefix + "# 访谈报告", "", render_text(report.get("summary", "")), "", "## 主要发现", ""]
     labels = {"statement": "受访者陈述", "opinion": "受访者意见", "hypothesis": "待验证假设"}
     for finding in report.get("findings", []):
