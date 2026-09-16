@@ -166,6 +166,9 @@ def test_failed_asr_can_be_manually_confirmed_without_losing_original(admin, app
         assert db.get(Turn, tid).audio_asset_id is not None
         assert db.get(Job, jid).status == "cancelled"
         assert db.get(InterviewSession, sid).status == "paused"
+    for format in ("csv", "markdown"):
+        exported = admin.get(f"/api/admin/sessions/{sid}/export?format={format}").text
+        assert "识别失败后受访者手动输入" in exported
 
 
 def test_unreadable_recording_is_archived_before_asr_failure(admin, app):

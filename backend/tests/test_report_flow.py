@@ -125,6 +125,12 @@ def test_manual_retry_replaces_invalid_report_results_and_keeps_frozen_sources(a
         participant.post(
             "/api/participant/control", json={"action": "retry", "job_id": jid}, headers=headers()
         ).status_code
+        == 409
+    )
+    assert (
+        admin.post(
+            f"/api/admin/sessions/{sid}/reports", json={"retry_job_id": jid}, headers=headers()
+        ).status_code
         == 200
     )
     asyncio.run(worker.run_once())
@@ -230,9 +236,9 @@ def test_long_report_reads_every_source_and_aggregates_with_frozen_retry_snapsho
         == 200
     )
     assert (
-        participant.post(
-            "/api/participant/control",
-            json={"action": "retry", "job_id": jid, "accept_possible_charge": True},
+        admin.post(
+            f"/api/admin/sessions/{sid}/reports",
+            json={"retry_job_id": jid, "accept_possible_charge": True},
             headers=headers(),
         ).status_code
         == 200

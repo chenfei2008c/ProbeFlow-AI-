@@ -21,12 +21,12 @@
 - `PUT /api/participant/turns/{id}/chunks/{seq}` → 二进制 body；请求 `X-Chunk-SHA256`；返回 `{seq,sha256}`。
 - `POST /api/participant/turns/{id}/finalize {chunks:[{seq,sha256}]}` → `{job_id}`。
 - `POST /api/participant/turns/{id}/confirm {text}` → `{job_id}`。
-- `POST /api/participant/control {action:"pause"|"resume"|"skip"|"end"|"withdraw"|"extend"|"retry"|"playback_done"|"rerecord",reason?,job_id?,accept_possible_charge?,turn_id?,played_complete?}` → 会话／任务状态。结束需用户确认；撤回需独立二次确认；播放被打断需记为未完整播放。
+- `POST /api/participant/control {action:"pause"|"resume"|"skip"|"end"|"withdraw"|"extend"|"retry"|"playback_done"|"rerecord",reason?,job_id?,accept_possible_charge?,turn_id?,played_complete?}` → 会话／任务状态。结束需用户确认；撤回需独立二次确认；播放被打断需记为未完整播放。retry 只接受本场失败的 decide／asr／tts 任务；报告及内部任务返回 JOB_NOT_RETRYABLE，报告重试使用管理员接口。
 - `POST /api/participant/heartbeat {}` → `{active_seconds,status}`；`GET /api/participant/events?after=0` → `{events:[{seq,type,payload,created_at}],cursor}`；`GET /api/media/{id}` → 鉴权音频。
 
 Session：`{id,study_id,status,participant_code,mode,consent_version,processing_consent,permanent_consent,active_seconds,target_seconds,budget_cny,spent_cny,reserved_cny,pause_reason,created_at,ended_at,retention:"permanent"}`。
 
-Detail：`{session:<Session>,study:<研究配置>,turns:[Turn],reports:[Report],jobs:[Job],memory:{topics:[],unresolved:[]},mode:"mock"|"live",consent_version,providers}`。受访者 Detail 不含报告、管理员修订操作、费用或内部记忆；界面仅管理端渲染这些内容。
+Detail：`{session:<Session>,study:<研究配置>,turns:[Turn],reports:[Report],jobs:[Job],memory:{topics:[],unresolved:[]},mode:"mock"|"live",consent_version,providers}`。受访者 Detail 不含报告、管理员修订操作、费用或内部记忆；界面仅管理端渲染这些内容。受访者 jobs 仅提供 decide／asr／tts；隐藏任务不能通过 control/retry 触发。
 
 Turn：`{id,seq,role:"assistant"|"participant",status,input_mode,text,revision_id,revisions:[{id,text,source,created_at}],audio_asset_id?,audio_status?,action?,topic_id?,created_at,confirmed,played_complete?}`。Report：`{id,version,status,source_updated,body:<结构化报告>,markdown,citations:[],created_at}`。Job：`{id,kind,status,error_code?,error_message?,result?,created_at}`，status 为 queued/running/succeeded/failed/external_status_unknown/cancelled。
 
@@ -92,3 +92,7 @@ decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/ne
 - 管理页从持久任务列表恢复处理中报告的轮询；失败报告可在处理记录中重试，未知费用的勾选默认未选。请求进行中不允许重复生成。
 - 重启恢复将中断的在途请求标为 external_status_unknown 并记录失败事件。报告失败不阻止已结束场次成为 completed；访谈中其他处理请求状态未知则暂停场次。已持久保存的响应检查点继续用于后续处理，不重复调用供应商。
 - 研究局限由程序加入提前结束、未确认文本、文字输入、音频文件缺失／哈希损坏等实际观察，位于报告前部。永久保存不存在正常的“录音到期”分支。每一类发现缺乏依据时明确显示尚缺乏依据。
+
+## 启动时的删除一致性
+
+应用开放请求前应用外部删除清单并补完中断的删除；此规则不受 `worker_enabled` 开关影响。启用后台任务时沿用 Worker.start 的清理与恢复流程；禁用时仍独立执行删除一致性处理，不启动模型任务。

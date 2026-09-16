@@ -10,6 +10,7 @@ from sqlalchemy import func, select, update
 
 from app.billing import totals
 from app.domain import (
+    PARTICIPANT_JOB_KINDS,
     TERMINAL,
     accrue_time,
     add_text_revision,
@@ -418,6 +419,8 @@ def register_session_routes(app, database, settings):
                     result["job_id"] = job.id
                 elif body.action == "retry":
                     job = db.get(Job, body.job_id)
+                    if not job or job.kind not in PARTICIPANT_JOB_KINDS:
+                        raise AppError("JOB_NOT_RETRYABLE", "该任务不能通过访谈页面重试", 409)
                     requeue_job(job, session.id, body.accept_possible_charge)
                     session.pause_reason = None
                     if session.status == "paused":

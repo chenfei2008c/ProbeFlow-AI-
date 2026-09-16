@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import asyncio
 import secrets
 import time
 
@@ -55,6 +56,11 @@ def create_app(settings: Settings | None = None):
             worker = Worker(database, settings)
             app.state.worker = worker
             await worker.start()
+        else:
+            from app.storage import Storage
+
+            # Disabling background work must not bypass pending privacy deletions.
+            await asyncio.to_thread(Storage(database, settings).reconcile_deletions)
         yield
         if worker:
             await worker.stop()

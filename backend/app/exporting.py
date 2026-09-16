@@ -13,6 +13,7 @@ SOURCE_LABELS = {
     "participant_confirmed": "受访者确认",
     "researcher_correction": "研究者勘误",
     "typed": "受访者原始输入",
+    "typed_after_asr_failure": "识别失败后受访者手动输入",
     "model": "AI 问题",
 }
 

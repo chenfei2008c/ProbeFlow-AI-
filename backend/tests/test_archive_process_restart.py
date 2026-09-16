@@ -17,7 +17,7 @@ from app.storage import Storage
 from app.worker import Worker
 from process_helpers import kill_at_marker
 from test_audio_flow import ready, upload, wav_bytes
-from test_core import headers
+from test_core import STUDY, headers, join
 from test_interview_flow import drain
 
 
@@ -49,15 +49,19 @@ if stage in {"original_written", "original_registered"}:
     asyncio.run(Worker(database, settings).run_once())
 else:
     storage = Storage(database, settings)
-    if stage == "tombstone_written":
-        original = storage._write_ledger
+    if stage in {"tombstone_written", "study_tombstone_written"}:
+        method = "_write_study_ledger" if stage.startswith("study_") else "_write_ledger"
+        original = getattr(storage, method)
         def ledger(*args, **kwargs):
             original(*args, **kwargs)
             pause()
-        storage._write_ledger = ledger
+        setattr(storage, method, ledger)
     else:
         storage._remove_unreferenced_paths = lambda *args, **kwargs: pause()
-    storage.delete_session(sys.argv[4], withdrawn=True)
+    if stage.startswith("study_"):
+        storage.delete_study(sys.argv[4])
+    else:
+        storage.delete_session(sys.argv[4], withdrawn=True)
 """
 
 
@@ -237,3 +241,66 @@ def test_killed_withdrawal_finishes_before_requests_or_jobs_and_filters_old_back
         assert db.execute("SELECT id FROM sessions WHERE id = ?", (survivor,)).fetchone()
         assert not db.execute("SELECT id FROM jobs WHERE session_id = ?", (sid,)).fetchall()
     assert not (restored / "audio" / sid).exists()
+
+
+@pytest.mark.parametrize("stage", ["study_tombstone_written", "study_rows_deleted"])
+@pytest.mark.parametrize("worker_enabled", [False, True])
+def test_killed_study_deletion_covers_all_sessions_invites_and_outline_tasks(
+    admin, app, tmp_path, monkeypatch, stage, worker_enabled
+):
+    participant, sid, _, _, _ = pending_voice(admin, app)
+    drain(app)
+    detail = admin.get(f"/api/admin/sessions/{sid}").json()
+    study_id = detail["session"]["study_id"]
+    study = admin.get(f"/api/admin/studies/{study_id}").json()
+    second, second_sid, _ = join(admin, app, study)
+    assert admin.post(f"/api/admin/studies/{study_id}/invites", json={}, headers=headers()).status_code == 200
+    assert (
+        admin.post(f"/api/admin/studies/{study_id}/outline", json=STUDY, headers=headers()).status_code == 200
+    )
+    _, survivor = ready(admin, app, "text")
+    baseline = admin.get(f"/api/admin/sessions/{survivor}").json()
+    settings = app.state.settings
+    storage = Storage(app.state.db, settings)
+    backup = storage.backup()
+    kill_at_marker(ARCHIVE_SCRIPT, settings.data_dir, tmp_path / "study-delete-ready", stage, study_id)
+    with sqlite3.connect(app.state.db.path) as db:
+        assert bool(db.execute("SELECT id FROM studies WHERE id = ?", (study_id,)).fetchone()) == (
+            stage == "study_tombstone_written"
+        )
+    assert (settings.data_dir / "audio" / sid).exists()
+
+    class ForbiddenProvider:
+        calls = 0
+
+        async def text(self, *args, **kwargs):
+            self.calls += 1
+            raise AssertionError("deleted study must not execute queued outline work")
+
+    forbidden = ForbiddenProvider()
+    monkeypatch.setattr(Worker, "provider", lambda self: forbidden)
+    restarted = create_app(settings.model_copy(update={"worker_enabled": worker_enabled}))
+    with TestClient(restarted) as client:
+        login(client)
+        assert client.get(f"/api/admin/studies/{study_id}").status_code == 404
+        for removed_sid, access in ((sid, participant), (second_sid, second)):
+            assert client.get(f"/api/admin/sessions/{removed_sid}").status_code == 404
+            client.cookies.update(access.cookies)
+            assert client.get("/api/participant/session").status_code == 401
+            assert storage.is_deleted(removed_sid)
+        assert client.get(f"/api/admin/sessions/{survivor}").json() == baseline
+        assert not (settings.data_dir / "audio" / sid).exists()
+        assert forbidden.calls == 0
+        with sqlite3.connect(restarted.state.db.path) as db:
+            assert not db.execute("SELECT id FROM study_versions WHERE study_id = ?", (study_id,)).fetchall()
+            assert not db.execute(
+                "SELECT id FROM invites WHERE study_version_id = ?", (study["current_version_id"],)
+            ).fetchall()
+            assert not db.execute("SELECT id FROM jobs WHERE kind = 'outline'").fetchall()
+    restored = tmp_path / "study-restored"
+    storage.restore(Path(backup["backup_path"]), restored)
+    with sqlite3.connect(restored / "probeflow.sqlite3") as db:
+        assert not db.execute("SELECT id FROM studies WHERE id = ?", (study_id,)).fetchall()
+        assert not db.execute("SELECT id FROM sessions WHERE study_id = ?", (study_id,)).fetchall()
+        assert not db.execute("SELECT id FROM jobs WHERE kind = 'outline'").fetchall()
+        assert db.execute("SELECT id FROM sessions WHERE id = ?", (survivor,)).fetchone()

@@ -29,6 +29,7 @@ from app.reporting import topic_coverage
 
 TERMINAL = {"completed", "withdrawn", "deleted", "expired"}
 DELETED = {"withdrawn", "deleted"}
+PARTICIPANT_JOB_KINDS = {"decide", "asr", "tts"}
 
 
 def iso(value):
@@ -283,7 +284,7 @@ def detail(db, session, settings, admin=True):
         "session": session_view(session, admin),
         "study": config,
         "turns": [turn_view(db, t) for t in turns],
-        "jobs": [job_view(j) for j in jobs if admin or j.kind not in {"report", "summary"}],
+        "jobs": [job_view(j) for j in jobs if admin or j.kind in PARTICIPANT_JOB_KINDS],
         "mode": settings.mode,
         "consent_version": settings.consent_version,
         "providers": settings.public_providers(),
