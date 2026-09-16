@@ -35,6 +35,22 @@ async def _public_resolver(host: str) -> list[str]:
     return ["8.8.8.8"]
 
 
+async def test_provider_honors_configured_timeout():
+    async def handler(request):
+        assert request.extensions["timeout"]["read"] == 7
+        assert request.extensions["timeout"]["connect"] == 7
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "{}"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    suite = ProviderSuite("live", _configs(), transport=httpx.MockTransport(handler), timeout_seconds=7)
+    await suite.text("interview", [{"role": "user", "content": "fictional"}])
+
+
 def test_role_config_repr_does_not_disclose_api_key() -> None:
     config = RoleConfig(base_url="https://example.com/v1", model="m", api_key="top-secret")
 

@@ -59,6 +59,28 @@ def upload(p, tid, seq, content):
     return response, {"seq": seq, "sha256": digest}
 
 
+def test_same_size_corrupted_archive_is_not_served_as_valid_audio(admin, app):
+    from test_interview_flow import drain
+
+    participant, sid = ready(admin, app)
+    tid = participant.post("/api/participant/turns", json={"input_mode": "voice"}, headers=headers()).json()[
+        "turn_id"
+    ]
+    original = wav_bytes()
+    _, manifest = upload(participant, tid, 0, original)
+    participant.post(f"/api/participant/turns/{tid}/finalize", json={"chunks": [manifest]}, headers=headers())
+    drain(app)
+    with app.state.db.read() as db:
+        asset = db.scalar(select(Asset).where(Asset.turn_id == tid))
+        asset_id = asset.id
+        path = app.state.settings.data_dir / asset.path
+    path.write_bytes(original[:-1] + bytes([original[-1] ^ 1]))
+    response = participant.get(f"/api/media/{asset_id}")
+    assert response.status_code == 409
+    assert response.json()["code"] == "ARCHIVE_CORRUPTED"
+    assert admin.get(f"/api/admin/sessions/{sid}/export").status_code == 200
+
+
 def test_voice_manifest_idempotency_original_and_machine_revision_survive(admin, app):
     p, sid = ready(admin, app)
     key = headers()

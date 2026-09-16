@@ -1,4 +1,6 @@
 from pathlib import Path
+import hashlib
+import json
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -25,6 +27,7 @@ class Settings(BaseSettings):
     temp_retention_hours: int = Field(default=24, ge=1)
     backup_count: int = Field(default=7, ge=1)
     provider_timeout_seconds: float = Field(default=45, gt=0, le=120)
+    price_overrides: dict[str, dict[str, str]] = Field(default_factory=dict)
     asr_provider: str = "bailian"
     interview_provider: str = "bailian"
     tts_provider: str = "bailian"
@@ -43,6 +46,28 @@ class Settings(BaseSettings):
     report_key_env: str = "DASHSCOPE_API_KEY"
     provider_region: str = "cn-beijing"
     tts_voice: str = "Cherry"
+
+    @field_validator("price_overrides")
+    @classmethod
+    def known_price_roles(cls, value):
+        if set(value) - {"asr", "interview", "tts", "report"}:
+            raise ValueError("价格配置只接受 asr、interview、tts、report 四种角色")
+        return value
+
+    @field_validator("asr_base_url", "interview_base_url", "tts_base_url", "report_base_url")
+    @classmethod
+    def safe_provider_url(cls, value):
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("供应商地址必须使用 HTTPS，且不能含凭证、查询参数或片段")
+        return value.rstrip("/")
 
     @field_validator("data_dir", "backup_dir")
     @classmethod
@@ -98,6 +123,25 @@ class Settings(BaseSettings):
                 "provider": getattr(self, f"{role}_provider"),
                 "model": getattr(self, f"{role}_model"),
                 "region": self.provider_region,
+                "endpoint_host": urlsplit(getattr(self, f"{role}_base_url")).hostname,
             }
             for role in ("asr", "interview", "tts", "report")
         }
+
+    def consent_snapshot(self):
+        return {
+            "notice_version": CONSENT_VERSION,
+            "mode": self.mode,
+            "retention": "permanent",
+            "providers": {
+                role: {**provider, "base_url": getattr(self, f"{role}_base_url").rstrip("/")}
+                for role, provider in self.public_providers().items()
+            },
+        }
+
+    @property
+    def consent_version(self):
+        # Credential rotation does not change recipients; credentials are never
+        # copied into a consent record or exposed to participants.
+        payload = json.dumps(self.consent_snapshot(), ensure_ascii=False, sort_keys=True)
+        return CONSENT_VERSION + "-" + hashlib.sha256(payload.encode()).hexdigest()[:12]

@@ -4,7 +4,7 @@ ProbeFlow V1.1 treats a submitted interview as a permanent archive. Original par
 
 Submitted original audio is archived before decoding or ASR. If media validation fails, its duration remains unknown (`null`), the original bytes remain archived, and playback is disabled with the actual failure reason.
 
-Permanent means “until an authenticated researcher deletes the session or the participant withdraws.” It does not mean public access. Every read still requires the relevant administrator or session-scoped participant authorization. It also does not describe a provider’s retention: text or audio sent to a configured ASR, language-model, or TTS provider remains subject to that provider’s policy and deletion interfaces.
+Permanent means “until an authenticated researcher deletes the session or the participant withdraws.” It does not mean public access. Every read still requires the relevant administrator or session-scoped participant authorization. Every consent stores its notice version, runtime mode, recipient/model/region/address snapshot, and timestamp. Switching between mock and live or changing the recipients invalidates the earlier authorization before another external request can start; key rotation alone does not. It also does not describe a provider’s retention: text or audio sent to a configured ASR, language-model, or TTS provider remains subject to that provider’s policy and deletion interfaces.
 
 ## Local storage boundary
 

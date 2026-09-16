@@ -63,3 +63,6 @@ decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/ne
 - Markdown 导出包含报告、逐字稿和全部文本修订，并将外部文本中的 HTML／Markdown 活动内容转义。JSON 保存原文，CSV 中公式前缀转义。
 - 诊断 providers.configured 表示凭证是否配置；live 的 available 为 null，不把凭证存在当作连通验证。
 - 研究级 outline 任务记录 study_id，研究删除和备份恢复过滤覆盖这些任务及相关幂等响应。
+- consent_version 为文案版本加处理配置摘要；模拟／真实切换、角色模型／地区／地址改变时失效。每条 Consent 和当前 Session 保留不含凭证的处理快照。
+- /api/media/{id} 在回放前校验完整文件哈希；损坏返回 ARCHIVE_CORRUPTED，文字仍可访问与导出。
+- PRICE_OVERRIDES 按四角色独立配置；付费请求预占与结算使用同一个不可变价格和模式快照，未知模型／地区返回 PRICE_NOT_CONFIGURED。

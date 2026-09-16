@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import io
 import json
 import secrets
@@ -436,6 +437,12 @@ def register_session_routes(app, database, settings):
                 raise AppError("ARCHIVE_MISSING", "音频档案缺失，请联系研究者检查备份", 404)
             if asset.duration_seconds is None:
                 raise AppError("AUDIO_UNPLAYABLE", "原始文件已保存，但格式或时长校验失败，暂不能回放", 409)
+            with path.open("rb") as source:
+                actual_hash = hashlib.file_digest(source, "sha256").hexdigest()
+            if path.stat().st_size != asset.byte_size or actual_hash != asset.sha256:
+                raise AppError(
+                    "ARCHIVE_CORRUPTED", "音频档案校验失败，请联系研究者检查备份；文字仍可访问", 409
+                )
             return FileResponse(path, media_type=asset.mime_type, headers={"Cache-Control": "no-store"})
 
     @app.get("/api/admin/jobs/{job_id}")

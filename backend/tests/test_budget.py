@@ -76,3 +76,42 @@ def test_money_units_and_chinese_tts_characters():
     assert calculate("tts", {"characters": 10000}) == 800_000
     assert calculate("asr", {"audio_seconds": 2700}) == 594_000
     assert calculate("interview", {"input_tokens": 400000, "output_tokens": 30000}) == 380_000
+
+
+def test_custom_model_requires_matching_prices_and_settlement_uses_reserved_snapshot(database):
+    from app.billing import reserve, settle
+
+    settings = database.settings
+    settings.mode = "live"
+    settings.report_model = "custom-report-model"
+    with database.transaction() as db:
+        job = db.get(Job, "j0")
+        with pytest.raises(AppError, match="价格"):
+            reserve(db, settings, job, 100, "report")
+    settings.price_overrides = {
+        "report": {
+            "model": "custom-report-model",
+            "region": "cn-beijing",
+            "version": "fixture-v1",
+            "source": "fictional price fixture",
+            "input_per_million": "10",
+            "cached_per_million": "2",
+            "output_per_million": "20",
+        }
+    }
+    with database.transaction() as db:
+        job = db.get(Job, "j0")
+        reservation = reserve(db, settings, job, 100, "report")
+        settings.price_overrides["report"]["input_per_million"] = "90"
+        settings.mode = "mock"
+        entry = settle(
+            db,
+            settings,
+            job,
+            reservation,
+            "report",
+            {"input_tokens": 10, "cached_tokens": 2, "output_tokens": 2},
+        )
+        assert entry.amount_micro == 124
+        assert entry.price_snapshot["input_per_million"] == "10"
+        assert entry.amount_source == "estimated"

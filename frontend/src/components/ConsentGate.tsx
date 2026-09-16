@@ -24,7 +24,7 @@ export function ConsentGate({ mode, providers, onSubmit, study, mock }: Props) {
       <div><span>谁能查看</span><strong>本项目研究者可查看记录与报告，你只能查看自己本场的问答。</strong></div>
       <div><span>保存期限</span><strong>永久保存，除非你撤回或研究者主动删除</strong></div>
     </div>
-    <label className="check-row"><input type="checkbox" checked={processing} onChange={event => setProcessing(event.target.checked)} /><span>我同意按上述方式处理本次访谈数据{mode === 'voice' && '，包括将录音发送给语音识别服务'}。</span></label>
+    <label className="check-row"><input type="checkbox" checked={processing} onChange={event => setProcessing(event.target.checked)} /><span>我同意按上述方式处理本次访谈数据{mode === 'voice' && !mock && '，包括将录音发送给语音识别服务'}。</span></label>
     <label className="check-row"><input type="checkbox" checked={permanent} onChange={event => setPermanent(event.target.checked)} /><span>我接受已提交内容、全部修订、报告与引用关系永久保存{mode === 'voice' && '，其中包括原始录音与已保存的 AI 问题音频'}。</span></label>
     <button className="button primary wide" disabled={!processing || !permanent}>{mode === 'voice' ? '同意并进行设备检查' : '同意并开始文字访谈'}</button>
     <p className="fine-print">原始机器转写、确认文本、全部修订、报告及引用关系均永久保存；语音模式还包括原始录音和已保存的问题音频。结束、归档或长期未访问不会自动删除。撤回会删除本系统内资料并阻止旧备份恢复，已发送给供应商的数据按其实际政策处理。</p>
@@ -33,5 +33,5 @@ export function ConsentGate({ mode, providers, onSubmit, study, mock }: Props) {
 }
 
 function providerName(provider: ProviderInfo | undefined, fallback: string) {
-  return provider ? `${provider.provider}（${provider.model}）` : fallback
+  return provider ? `${provider.provider}（${provider.model}${provider.endpoint_host ? `，${provider.endpoint_host}` : ''}）` : fallback
 }

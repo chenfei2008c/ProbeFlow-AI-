@@ -1,7 +1,7 @@
 export type AppMode = 'mock' | 'live'
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'external_status_unknown' | 'cancelled'
 
-export interface ProviderInfo { provider: string; model: string; region?: string; available?: boolean; configured?: boolean; name?: string }
+export interface ProviderInfo { provider: string; model: string; region?: string; endpoint_host?: string; available?: boolean | null; configured?: boolean; name?: string }
 export interface ProviderMap { asr: ProviderInfo; interview: ProviderInfo; tts: ProviderInfo; report: ProviderInfo }
 export interface Config { mode: AppMode; consent_version: string; providers: ProviderMap; admin_initialized: boolean }
 export interface Topic { id: string; title: string; research_question: string; priority: number; evidence_type: string; minutes: number }

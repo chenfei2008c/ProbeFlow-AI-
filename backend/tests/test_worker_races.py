@@ -4,7 +4,6 @@ import pytest
 from sqlalchemy import select
 
 from app.errors import AppError
-from app.config import CONSENT_VERSION
 from app.models import InterviewSession, Job, Ledger, Reservation
 from app.providers import ProviderError, TextResult, Usage
 from app.storage import Storage
@@ -33,7 +32,7 @@ def test_withdraw_during_paid_call_settles_bill_without_restoring_content(databa
     with database.transaction() as db:
         session = db.get(InterviewSession, "s0")
         session.processing_consent = session.permanent_consent = True
-        session.consent_version = CONSENT_VERSION
+        session.consent_version = database.settings.consent_version
         session.status = "in_progress"
         job = db.get(Job, "j0")
         job.status, job.lease_token, job.attempt = "running", "lease", 1

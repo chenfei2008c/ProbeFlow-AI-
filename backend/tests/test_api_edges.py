@@ -99,3 +99,36 @@ def test_exports_preserve_text_but_escape_active_markdown_and_csv_formulas(admin
     assert "[点此](javascript:" not in markdown and "<script>" not in markdown
     assert "逐字稿" in markdown and "文本版本 1" in markdown
     assert admin.get(f"/api/admin/sessions/{sid}/export").json()["turns"][1]["text"] == original
+
+
+def test_full_disk_preserves_read_export_and_existing_media_is_scoped(admin, app, monkeypatch):
+    from types import SimpleNamespace
+    from test_core import join, new_study
+
+    participant, sid = ready(admin, app)
+    tid = participant.post("/api/participant/turns", json={"input_mode": "voice"}, headers=headers()).json()[
+        "turn_id"
+    ]
+    original = wav_bytes()
+    _, manifest = upload(participant, tid, 0, original)
+    participant.post(f"/api/participant/turns/{tid}/finalize", json={"chunks": [manifest]}, headers=headers())
+    drain(app)
+    participant.post(
+        f"/api/participant/turns/{tid}/confirm", json={"text": "已提交的虚构回答。"}, headers=headers()
+    )
+    drain(app)
+    before = participant.get("/api/participant/session").json()
+    asset_id = next(turn["audio_asset_id"] for turn in before["turns"] if turn["id"] == tid)
+    stranger, _, _ = join(admin, app, new_study(admin))
+    assert stranger.get(f"/api/media/{asset_id}").status_code == 404
+    assert stranger.get(f"/api/admin/sessions/{sid}").status_code == 401
+    assert sid not in stranger.get("/api/participant/events?after=0").text
+    assert "reports" not in stranger.get("/api/participant/session").json()
+    app.state.settings.min_free_bytes = 1024
+    monkeypatch.setattr("app.storage.shutil.disk_usage", lambda _: SimpleNamespace(free=0))
+    rejected = participant.post("/api/participant/turns", json={"input_mode": "voice"}, headers=headers())
+    assert rejected.status_code == 507 and rejected.json()["code"] == "STORAGE_FULL"
+    assert participant.get(f"/api/media/{asset_id}").content == original
+    assert admin.get(f"/api/admin/sessions/{sid}/export").status_code == 200
+    after = participant.get("/api/participant/session").json()
+    assert after["turns"] == before["turns"]

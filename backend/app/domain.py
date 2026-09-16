@@ -48,7 +48,7 @@ def require_session(db, sid, consent=False, active=False):
     if consent and (
         not session.processing_consent
         or not session.permanent_consent
-        or session.consent_version != CONSENT_VERSION
+        or session.consent_version != db.info.get("consent_version", CONSENT_VERSION)
     ):
         raise AppError("CONSENT_REQUIRED", "请先确认数据处理与永久保存说明", 403)
     if active and session.status not in {"ready", "in_progress"}:
@@ -251,7 +251,7 @@ def detail(db, session, settings, admin=True):
         "turns": [turn_view(db, t) for t in turns],
         "jobs": [job_view(j) for j in jobs if admin or j.kind not in {"report", "summary"}],
         "mode": settings.mode,
-        "consent_version": CONSENT_VERSION,
+        "consent_version": settings.consent_version,
         "providers": settings.public_providers(),
     }
     if admin:

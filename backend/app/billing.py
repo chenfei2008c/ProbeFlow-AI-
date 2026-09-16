@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from decimal import ROUND_CEILING, Decimal
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 
 from sqlalchemy import func, select
 
@@ -17,6 +17,43 @@ PRICE_CARD = {
     "asr_per_second": "0.00022",
     "tts_per_10000": "0.8",
 }
+
+
+def prices_for_role(settings, role):
+    models = {
+        "asr": "qwen3-asr-flash",
+        "tts": "qwen3-tts-flash",
+        "interview": "qwen-plus",
+        "report": "qwen-plus",
+    }
+    units = {
+        "asr": {"asr_per_second"},
+        "tts": {"tts_per_10000"},
+        "interview": {"input_per_million", "output_per_million", "cached_per_million"},
+        "report": {"input_per_million", "output_per_million", "cached_per_million"},
+    }
+    model = getattr(settings, f"{role}_model")
+    override = settings.price_overrides.get(role)
+    if override is not None:
+        required = units[role] | {"version", "source", "model", "region"}
+        if set(override) != required or any(not override[key] for key in required):
+            raise AppError("PRICE_NOT_CONFIGURED", f"{role} 价格配置字段不完整或无效", 409)
+        if override["model"] != model or override["region"] != settings.provider_region:
+            raise AppError("PRICE_NOT_CONFIGURED", f"{role} 价格配置与模型或地区不匹配", 409)
+        try:
+            for unit in units[role]:
+                value = Decimal(override[unit])
+                if not value.is_finite() or value < 0:
+                    raise InvalidOperation
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise AppError("PRICE_NOT_CONFIGURED", f"{role} 价格必须为非负有限数值", 409) from exc
+        return dict(override)
+    if settings.mode == "live" and (model != models[role] or settings.provider_region != "cn-beijing"):
+        raise AppError("PRICE_NOT_CONFIGURED", f"请先为 {role} 当前模型和地区配置价格快照", 409)
+    return {key: PRICE_CARD[key] for key in units[role] | {"version", "source"}} | {
+        "model": model,
+        "region": settings.provider_region,
+    }
 
 
 def month_key():
@@ -56,7 +93,7 @@ def totals(db, month=None):
     return int(spent), int(held)
 
 
-def reserve(db, settings, job, amount, role=None):
+def reserve(db, settings, job, amount, role=None, prices=None):
     if amount < 0:
         raise ValueError("negative reservation")
     spent, held = totals(db)
@@ -66,7 +103,7 @@ def reserve(db, settings, job, amount, role=None):
     ):
         raise AppError("BUDGET_EXCEEDED", "预算不足，已暂停新的付费请求；仍可导出已有记录", 409)
     role = role or {"asr": "asr", "tts": "tts", "report": "report"}.get(job.kind, "interview")
-    prices = dict(session.price_snapshot if session and session.price_snapshot else PRICE_CARD)
+    prices = dict(prices or prices_for_role(settings, role))
     reservation = Reservation(
         session_id=job.session_id,
         job_id=job.id,
@@ -79,13 +116,13 @@ def reserve(db, settings, job, amount, role=None):
             "provider": getattr(settings, f"{role}_provider"),
             "model": getattr(settings, f"{role}_model"),
             "region": settings.provider_region,
+            "mode": settings.mode,
         },
     )
     db.add(reservation)
     if session:
         session.reserved_micro += amount
-        if not session.price_snapshot:
-            session.price_snapshot = dict(PRICE_CARD)
+        session.price_snapshot = {**session.price_snapshot, role: prices}
     db.flush()
     return reservation
 
@@ -95,20 +132,17 @@ def settle(db, settings, job, reservation, role, usage, status="succeeded", pric
         raise AppError("SETTLEMENT_CONFLICT", "该请求预算已结算", 409)
     session = db.get(InterviewSession, job.session_id) if job.session_id else None
     meta = reservation.call_meta or {}
-    prices = (
-        prices
-        or meta.get("prices")
-        or (session.price_snapshot if session and session.price_snapshot else PRICE_CARD)
-    )
+    prices = meta.get("prices") or prices or PRICE_CARD
+    mode = meta.get("mode", settings.mode)
     unknown = status == "external_status_unknown"
     failed = status == "failed"
-    amount = None if unknown else 0 if failed or settings.mode == "mock" else calculate(role, usage, prices)
+    amount = None if unknown else 0 if failed or mode == "mock" else calculate(role, usage, prices)
     reservation.state = "unknown" if unknown else "released" if failed else "settled"
     if session:
         if not unknown:
             session.reserved_micro -= reservation.amount_micro
             session.spent_micro += amount
-    source = "unknown" if unknown else "mock" if settings.mode == "mock" else usage.get("source", "estimated")
+    source = "unknown" if unknown else "mock" if mode == "mock" else usage.get("source", "estimated")
     entry = Ledger(
         session_id=job.session_id,
         job_id=job.id,

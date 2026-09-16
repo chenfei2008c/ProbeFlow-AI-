@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from dotenv import dotenv_values
 from sqlalchemy import case, func, select
 
-from app.billing import PRICE_CARD, billable_characters, calculate, reserve, settle
+from app.billing import billable_characters, calculate, prices_for_role, reserve, settle
 from app.domain import DELETED, add_text_revision, emit, enqueue, new_turn, require_session, turn_view
 from app.errors import AppError
 from app.models import (
@@ -62,7 +62,9 @@ class Worker:
                 region=self.settings.provider_region,
                 voice=self.settings.tts_voice,
             )
-        self._provider = ProviderSuite(self.settings.mode, configs)
+        self._provider = ProviderSuite(
+            self.settings.mode, configs, timeout_seconds=self.settings.provider_timeout_seconds
+        )
         return self._provider
 
     async def start(self):
@@ -216,9 +218,12 @@ class Worker:
                             session.status = "completed"
                         elif job.kind != "report" and session.status not in {"completed", "finalizing"}:
                             session.status = "paused"
-                            session.pause_reason = (
-                                "budget_exceeded" if job.error_code == "BUDGET_EXCEEDED" else "provider_error"
-                            )
+                            session.pause_reason = {
+                                "BUDGET_EXCEEDED": "budget_exceeded",
+                                "CONSENT_REQUIRED": "consent_required",
+                                "CONTEXT_TOO_LARGE": "context_limit",
+                                "STORAGE_FULL": "storage_full",
+                            }.get(job.error_code, "provider_error")
                         emit(db, session, "job.failed", {"job_id": job.id, "code": job.error_code})
         return True
 
@@ -253,17 +258,18 @@ class Worker:
                 session = db.get(InterviewSession, job.session_id)
                 if session.status == "paused" and job.kind != "report":
                     raise AppError("SESSION_PAUSED", "访谈已暂停，恢复后继续处理", 409)
+            prices = prices_for_role(self.settings, role)
             amount = (
-                0 if self.settings.mode == "mock" else max(1, int(calculate(role, estimated_usage) * 1.25))
+                0
+                if self.settings.mode == "mock"
+                else max(1, int(calculate(role, estimated_usage, prices) * 1.25))
             )
-            reservation = reserve(db, self.settings, job, amount, role)
+            reservation = reserve(db, self.settings, job, amount, role, prices)
             reservation_id = reservation.id
             job.call_started = True
             job.payload = {**job.payload, "_call_role": role}
             job.lease_until = time.time() + 180
             call_job = SimpleNamespace(id=job.id, session_id=job.session_id, attempt=job.attempt)
-            session = db.get(InterviewSession, job.session_id) if job.session_id else None
-            prices = dict(session.price_snapshot if session and session.price_snapshot else PRICE_CARD)
         try:
             result = await call()
         except ProviderError as exc:

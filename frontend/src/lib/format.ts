@@ -13,4 +13,7 @@ export const actionLabel: Record<string, string> = {
   clarify: '澄清含义', contrast: '比较情境', verify_summary: '核对理解', transition: '转换主题', close: '准备结束',
 }
 export const jobLabel: Record<string, string> = { decide: '准备下一问', asr: '语音转写', tts: '生成问题语音', report: '生成报告', outline: '生成提纲', summary: '整理工作记忆' }
-export const pauseLabel: Record<string, string> = { user: '你已主动暂停', user_paused: '你已主动暂停', heartbeat_lost: '连接中断，已暂停新的处理', budget_exceeded: '预算不足，请联系研究者追加预算', provider_error: '服务处理失败，请查看提示后重试或改用手动输入' }
+export const pauseLabel: Record<string, string> = {
+  consent_required: '处理配置已变化，请重新确认数据处理与永久保存说明。',
+  context_limit: '必要上下文超过处理上限，全部原文已保存，请联系研究者调整或结束并导出。',
+  storage_full: '可用存储不足，请联系研究者扩容后继续。', user: '你已主动暂停', user_paused: '你已主动暂停', heartbeat_lost: '连接中断，已暂停新的处理', budget_exceeded: '预算不足，请联系研究者追加预算', provider_error: '服务处理失败，请查看提示后重试或改用手动输入' }

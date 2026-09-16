@@ -75,6 +75,7 @@ class InterviewSession(Identity, Base):
     status: Mapped[str] = mapped_column(String(32), default="pending_consent", index=True)
     mode: Mapped[str] = mapped_column(String(16), default="text")
     consent_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    consent_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
     processing_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     permanent_consent: Mapped[bool] = mapped_column(Boolean, default=False)
     retention: Mapped[str] = mapped_column(String(16), default="permanent")
@@ -101,6 +102,7 @@ class Consent(Identity, Base):
     processing: Mapped[bool] = mapped_column(Boolean)
     permanent: Mapped[bool] = mapped_column(Boolean)
     retention: Mapped[str] = mapped_column(String(16), default="permanent")
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class Invite(Identity, Base):

@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select
 
-from app.config import CONSENT_VERSION, ROOT, Settings
+from app.config import ROOT, Settings
 from app.db import Database
 from app.domain import (
     DELETED,
@@ -23,7 +23,7 @@ from app.domain import (
     study_view,
 )
 from app.errors import AppError
-from app.models import Consent, InterviewSession, Invite, Owner, Study, StudyVersion, uid
+from app.models import Consent, InterviewSession, Invite, Job, Owner, Study, StudyVersion, uid
 from app.middleware import RequestBodyLimit
 from app.schemas import ConsentInput, StudyInput
 from app.security import (
@@ -146,7 +146,7 @@ def create_app(settings: Settings | None = None):
         with database.read() as db:
             return {
                 "mode": settings.mode,
-                "consent_version": CONSENT_VERSION,
+                "consent_version": settings.consent_version,
                 "providers": settings.public_providers(),
                 "admin_initialized": db.scalar(select(Owner.id)) is not None,
             }
@@ -319,7 +319,7 @@ def create_app(settings: Settings | None = None):
         with database.transaction() as db:
             auth = authenticate(db, request, "participant")
             session = require_session(db, auth.subject_id)
-            if body.version != CONSENT_VERSION or not body.processing or not body.permanent:
+            if body.version != settings.consent_version or not body.processing or not body.permanent:
                 raise AppError("CONSENT_REQUIRED", "必须主动接受当前版本的数据处理及永久保存条件", 403)
             if session.status in TERMINAL:
                 raise AppError("SESSION_ENDED", "访谈已结束", 409)
@@ -335,6 +335,7 @@ def create_app(settings: Settings | None = None):
                         raise AppError("CAPACITY_REACHED", "当前访谈已达两场，请稍后再试", 409, True)
                     session.status = "ready"
                 session.consent_version, session.mode = body.version, body.mode
+                session.consent_snapshot = settings.consent_snapshot()
                 session.processing_consent = session.permanent_consent = True
                 db.add(
                     Consent(
@@ -343,9 +344,18 @@ def create_app(settings: Settings | None = None):
                         mode=body.mode,
                         processing=True,
                         permanent=True,
+                        snapshot=settings.consent_snapshot(),
                     )
                 )
                 job = enqueue(db, "decide", {"first": True}, session.id, f"first:{session.id}")
+                for waiting in db.scalars(
+                    select(Job).where(
+                        Job.session_id == session.id,
+                        Job.status == "failed",
+                        Job.error_code == "CONSENT_REQUIRED",
+                    )
+                ):
+                    waiting.status, waiting.error_code, waiting.error_message = "queued", None, None
                 emit(db, session, "consent.accepted")
                 return {"session_id": session.id, "job_id": job.id}
 

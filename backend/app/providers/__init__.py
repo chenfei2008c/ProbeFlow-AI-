@@ -111,6 +111,7 @@ class ProviderSuite:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         resolver: Resolver | None = None,
+        timeout_seconds: float = 45,
     ) -> None:
         if mode not in {"mock", "live"}:
             raise ValueError("provider mode must be 'mock' or 'live'")
@@ -125,6 +126,9 @@ class ProviderSuite:
                 if not config.base_url or not config.model or not config.api_key:
                     raise ValueError(f"incomplete provider configuration for role {role}")
         self.mode = mode
+        if not 0 < timeout_seconds <= 120:
+            raise ValueError("provider timeout must be between 0 and 120 seconds")
+        self._timeout_seconds = timeout_seconds
         self.configs = dict(configs)
         self._transport = transport
         self._resolver = resolver or _resolve_public_addresses
@@ -261,7 +265,7 @@ class ProviderSuite:
         try:
             async with httpx.AsyncClient(
                 transport=self._transport,
-                timeout=httpx.Timeout(30.0, connect=10.0),
+                timeout=httpx.Timeout(self._timeout_seconds, connect=min(10.0, self._timeout_seconds)),
                 follow_redirects=False,
             ) as client:
                 response = await client.post(
@@ -339,7 +343,9 @@ class ProviderSuite:
         try:
             async with httpx.AsyncClient(
                 transport=self._transport,
-                timeout=httpx.Timeout(20.0, connect=5.0),
+                timeout=httpx.Timeout(
+                    min(20.0, self._timeout_seconds), connect=min(5.0, self._timeout_seconds)
+                ),
                 follow_redirects=False,
             ) as client:
                 async with client.stream("GET", secure_url, headers={"Accept": "audio/*"}) as response:

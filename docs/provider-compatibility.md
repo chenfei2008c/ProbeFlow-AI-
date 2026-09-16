@@ -62,3 +62,27 @@ MediaRecorder 生成的流式 WebM 可能没有容器或音轨 duration。遇到
 - 未进行普通话音色试听、带口音识别、业务术语识别、真实延迟或费用对账。
 - 未在 iPhone Safari、Android Chrome 或实际 MediaRecorder 分块上验证容器组合。
 - 未进行 60 分钟访谈和长回答的真实供应商联调。
+
+## 配置变化、同意与价格
+
+同意说明版本由 V1.1 文案版本、模拟／真实模式、四个角色的模型、地区与服务地址共同确定。受访者同意时保存当时的处理配置快照；密钥不进入快照。改变上述处理配置会使旧同意失效，后端在任何外部请求之前拒绝继续，页面要求重新主动确认。只轮换密钥不会更换说明版本。供应商 URL 不允许包含凭证、查询参数或片段。
+
+`PROVIDER_TIMEOUT_SECONDS` 控制请求超时（默认 45 秒，范围大于 0 且不超过 120）；TTS 下载另限制为不超过 20 秒。超时仍按可能已执行或计费处理，不自动再次付费。
+
+默认价格只是规格中的 2026-09-15 北京地区样例，适用于默认三类模型，**不是最新报价承诺**。更换模型或地区后，必须配置匹配的 `PRICE_OVERRIDES` 才能执行付费请求。访谈与报告的价格可独立配置；未知配置不会套用便宜模型的单价。
+
+在本机 `.env` 中将 `PRICE_OVERRIDES` 写为单行 JSON。以下数字仅为虚构格式示例，不能直接用于真实计费：
+
+```dotenv
+PRICE_OVERRIDES='{"report":{"model":"your-report-model","region":"cn-beijing","version":"your-verified-price-version","source":"your-verified-price-source","input_per_million":"10","cached_per_million":"2","output_per_million":"20"}}'
+```
+
+每个角色都需要 `model`、`region`、`version`、`source`，单价采用非负有限数值字符串，单位为人民币：
+
+| 角色 | 单价字段 |
+|---|---|
+| interview、report | `input_per_million`、`output_per_million`、`cached_per_million`，元／百万 token |
+| asr | `asr_per_second`，元／输入音频秒 |
+| tts | `tts_per_10000`，元／万计费字符；百炼汉字双字符口径 |
+
+每个请求预占预算时冻结其模式、模型、地区和价格快照；返回、超时或会话删除后的财务结算均使用这份快照。后续修改配置不改变已经发起请求的结算口径。用量账本仍区分实际用量、估算和未知；它不是供应商最终账单。
