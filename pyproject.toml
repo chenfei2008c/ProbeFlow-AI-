@@ -1,0 +1,21 @@
+[project]
+name = "probeflow"
+version = "1.1.0"
+description = "中文 AI 深度访谈与永久证据档案"
+requires-python = ">=3.12"
+dependencies = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1", "pydantic-settings>=2.8,<3", "sqlalchemy>=2.0,<3", "alembic>=1.15,<2", "httpx>=0.28,<1", "argon2-cffi>=23.1", "python-multipart>=0.0.20"]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.11,<1"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

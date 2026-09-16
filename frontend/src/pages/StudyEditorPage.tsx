@@ -1,0 +1,46 @@
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ApiError, apiRequest } from '../lib/api'
+import { dateTime, money } from '../lib/format'
+import { Job, Study, StudyConfig, Topic, Session } from '../types'
+import { ErrorPanel, JobNotice, Loading, StatusBadge } from '../components/Common'
+import { useApi } from '../hooks/useApi'
+
+export function StudyEditorPage() {
+  const { id = '' } = useParams()
+  const navigate = useNavigate()
+  const { data: study, error, loading, reload } = useApi<Study>(`/api/admin/studies/${id}`)
+  const { data: sessions, reload: reloadSessions } = useApi<Session[]>(`/api/admin/studies/${id}/sessions`)
+  const [draft, setDraft] = useState<StudyConfig>()
+  const [job, setJob] = useState<Job>()
+  const [saving, setSaving] = useState(false)
+  const [invite, setInvite] = useState<{ url: string; expires_at: string }>()
+  const [actionError, setActionError] = useState<ApiError>()
+  useEffect(() => { if (study) setDraft(structuredClone(study.version)) }, [study])
+  useEffect(() => {
+    if (!job || !['queued', 'running'].includes(job.status)) return
+    const timer = window.setTimeout(async () => {
+      const next = await apiRequest<Job>(`/api/admin/jobs/${job.id}`); setJob(next)
+      if (next.status === 'succeeded' && next.result && draft) setDraft({ ...draft, ...(next.result as Partial<StudyConfig>) })
+    }, 1200)
+    return () => clearTimeout(timer)
+  }, [job, draft])
+  if (loading || !draft) return <div className="page"><Loading label="正在打开研究设计…" />{error && <ErrorPanel error={error} retry={reload} />}</div>
+  const field = <K extends keyof StudyConfig>(key: K, value: StudyConfig[K]) => setDraft({ ...draft, [key]: value })
+  const updateTopic = (index: number, patch: Partial<Topic>) => field('topics', draft.topics.map((topic, i) => i === index ? { ...topic, ...patch } : topic))
+  const outline = async () => { setActionError(undefined); try { const result = await apiRequest<{ job_id: string }>(`/api/admin/studies/${id}/outline`, { method: 'POST', body: draft }); setJob({ id: result.job_id, kind: '生成访谈提纲', status: 'queued', created_at: new Date().toISOString() }) } catch (value) { setActionError(value as ApiError) } }
+  const publish = async () => { setSaving(true); setActionError(undefined); try { await apiRequest(`/api/admin/studies/${id}/versions`, { method: 'POST', body: draft }); await reload() } catch (value) { setActionError(value as ApiError) } finally { setSaving(false) } }
+  const createInvite = async () => { try { setInvite(await apiRequest(`/api/admin/studies/${id}/invites`, { method: 'POST', body: {} })) } catch (value) { setActionError(value as ApiError) } }
+  const archive = async () => { await apiRequest(`/api/admin/studies/${id}/archive`, { method: 'POST', body: { archived: !study?.archived } }); await reload() }
+  const remove = async () => { if (!window.confirm('删除研究会删除其全部场次与正式档案。此操作不可撤销，确定继续吗？')) return; await apiRequest(`/api/admin/studies/${id}`, { method: 'DELETE' }); navigate('/studies') }
+  return <div className="page editor-page">
+    <div className="page-heading compact"><div><Link to="/studies" className="back-link">← 所有研究</Link><h1>{draft.title}</h1><p>当前发布版本 {study?.version_number ? `V${study.version_number}` : '尚未发布'} · 更新于 {dateTime(study?.updated_at)}</p></div><div className="button-row"><button className="button ghost" onClick={outline}>AI 生成提纲</button><button className="button primary" onClick={publish} disabled={saving}>{saving ? '正在发布…' : '发布新版本'}</button></div></div>
+    {actionError && <ErrorPanel error={actionError} />}{job && <JobNotice job={job} />}
+    <div className="editor-layout"><section className="editor-main">
+      <div className="panel"><div className="section-heading"><div><span className="step">01</span><h2>研究基础</h2></div><small>语言固定为简体中文</small></div><div className="form-grid"><label className="field full"><span>研究标题 <em>必填</em></span><input maxLength={80} value={draft.title} onChange={e => field('title', e.target.value)} /></label><label className="field full"><span>研究目标 <em>必填</em></span><textarea maxLength={2000} rows={4} value={draft.objective} onChange={e => field('objective', e.target.value)} /></label><label className="field"><span>受访者描述</span><textarea maxLength={500} rows={3} value={draft.participant_description} onChange={e => field('participant_description', e.target.value)} /></label><label className="field"><span>主持语气</span><textarea rows={3} value={draft.tone} onChange={e => field('tone', e.target.value)} /></label><label className="field"><span>目标时长</span><select value={draft.target_minutes} onChange={e => field('target_minutes', Number(e.target.value) as StudyConfig['target_minutes'])}>{[15,30,45,60].map(v => <option key={v} value={v}>{v} 分钟</option>)}</select></label><label className="field"><span>单场预算</span><div className="input-prefix"><span>¥</span><input type="number" min="0" step="0.1" value={draft.budget_cny} onChange={e => field('budget_cny', Number(e.target.value))} /></div></label></div></div>
+      <div className="panel"><div className="section-heading"><div><span className="step">02</span><h2>访谈主题</h2></div><button className="text-button" onClick={() => field('topics', [...draft.topics, { id: crypto.randomUUID(), title: '', research_question: '', priority: draft.topics.length + 1, evidence_type: '具体事件', minutes: 10 }])}>＋ 添加主题</button></div><p className="section-help">AI 生成的内容只是可编辑草稿。发布前请检查问题是否中立、具体且不诱导。</p><div className="topic-list">{draft.topics.map((topic, index) => <div className="topic-editor" key={topic.id}><span className="topic-index">{String(index + 1).padStart(2, '0')}</span><div className="topic-fields"><input aria-label={`主题 ${index + 1} 标题`} value={topic.title} placeholder="主题名称" onChange={e => updateTopic(index, { title: e.target.value })} /><textarea aria-label={`主题 ${index + 1} 研究问题`} value={topic.research_question} placeholder="希望了解什么？" onChange={e => updateTopic(index, { research_question: e.target.value })} /><div className="inline-fields"><label>证据类型<input value={topic.evidence_type} onChange={e => updateTopic(index, { evidence_type: e.target.value })} /></label><label>建议分钟<input type="number" min="1" value={topic.minutes} onChange={e => updateTopic(index, { minutes: Number(e.target.value) })} /></label><label>优先级<input type="number" min="1" max="10" value={topic.priority} onChange={e => updateTopic(index, { priority: Number(e.target.value) })} /></label></div></div><button aria-label="删除主题" className="icon-button" onClick={() => field('topics', draft.topics.filter((_, i) => i !== index))}>×</button></div>)}</div></div>
+      <div className="panel"><div className="section-heading"><div><span className="step">03</span><h2>边界与确认</h2></div></div><div className="form-grid"><label className="field full"><span>禁问范围</span><textarea rows={3} value={draft.exclusions} onChange={e => field('exclusions', e.target.value)} placeholder="例如：不询问真实客户身份、具体金额或人员评价" /></label><label className="field full"><span>术语表（每行一项，最多 100 项）</span><textarea rows={4} value={draft.glossary.join('\n')} onChange={e => field('glossary', e.target.value.split('\n').map(v => v.trim()).filter(Boolean).slice(0, 100))} /></label><label className="switch-row"><input type="checkbox" checked={draft.confirm_transcript} onChange={e => field('confirm_transcript', e.target.checked)} /><span><strong>逐轮确认转写</strong><small>建议开启。受访者确认或修正后才生成下一问。</small></span></label></div></div>
+    </section><aside className="editor-aside"><div className="panel sticky"><div className="section-heading"><h2>发布与邀请</h2><StatusBadge status={study?.archived ? 'archived' : 'ready'} /></div><div className="retention-box"><strong>永久保存规则</strong><p>录音、原始转写、全部修订、报告与引用不会因结束、归档或长期未访问而自动删除。</p><span>只有主动删除或受访者撤回会触发删除。</span></div><button className="button primary wide" onClick={createInvite} disabled={!study?.current_version_id}>创建邀请链接</button>{invite && <div className="invite-box"><label>邀请链接仅在本次显示</label><div><input readOnly value={invite.url} /><button onClick={() => navigator.clipboard.writeText(invite.url)}>复制</button></div><small>有效至 {dateTime(invite.expires_at)}</small></div>}<button className="button ghost wide" onClick={archive}>{study?.archived ? '取消归档' : '归档研究'}</button><button className="text-button danger-text wide" onClick={remove}>删除研究与全部档案</button><dl className="mini-stats"><div><dt>访谈</dt><dd>{study?.completed_count}/{study?.session_count}</dd></div><div><dt>累计支出</dt><dd>{money(study?.total_cost_cny)}</dd></div></dl></div></aside></div>
+    <section className="panel sessions-panel"><div className="section-heading"><div><span className="step">04</span><h2>访谈场次</h2></div><button className="text-button" onClick={reloadSessions}>刷新</button></div>{!sessions?.length ? <p className="muted">还没有受访者兑换邀请。</p> : <div className="table"><div className="table-row table-head"><span>受访者</span><span>状态</span><span>有效时长</span><span>支出</span><span /></div>{sessions.map(session => <Link className="table-row" to={`/sessions/${session.id}`} key={session.id}><strong>{session.participant_code}</strong><span><StatusBadge status={session.status} /></span><span>{Math.round(session.active_seconds / 60)} 分钟</span><span>{money(session.spent_cny)}</span><span>查看 →</span></Link>)}</div>}</section>
+  </div>
+}

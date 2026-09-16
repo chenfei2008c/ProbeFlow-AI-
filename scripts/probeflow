@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PROBEFLOW_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$PROBEFLOW_ROOT"
+export PYTHONPATH="$PROBEFLOW_ROOT/backend${PYTHONPATH:+:$PYTHONPATH}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/probeflow-uv-cache}"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "请先安装 uv 和 Python 3.12 或更新版本，然后重试。" >&2
+  exit 1
+fi
+exec uv run --frozen python -m app.cli "$@"

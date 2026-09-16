@@ -1,0 +1,32 @@
+{
+  "mode": "mock",
+  "fictional_only": true,
+  "root": "/var/folders/g9/c5ltqdv13hgcs79cg85v2rpm0000gn/T/probeflow-archive-drill-5ztg_pgc",
+  "backup_path": "/private/var/folders/g9/c5ltqdv13hgcs79cg85v2rpm0000gn/T/probeflow-archive-drill-5ztg_pgc/backups/backup-1789525554808480000-c048a3ab",
+  "restore_path": "/var/folders/g9/c5ltqdv13hgcs79cg85v2rpm0000gn/T/probeflow-archive-drill-5ztg_pgc/restored",
+  "kept_sessions": 1,
+  "deleted_sessions_restored": 0,
+  "verified_audio_files": 3,
+  "all_audio_hashes_match": true,
+  "restored_text_revisions": 5,
+  "restored_report_versions": 2,
+  "restored_exact_citations": 2,
+  "restore_validation": {
+    "target_dir": "/private/var/folders/g9/c5ltqdv13hgcs79cg85v2rpm0000gn/T/probeflow-archive-drill-5ztg_pgc/restored",
+    "created_at": "2026-09-16T02:25:54.808479+00:00",
+    "deletions_applied": 1,
+    "study_deletions_applied": 0,
+    "deletion_ledger_path": "/private/var/folders/g9/c5ltqdv13hgcs79cg85v2rpm0000gn/T/probeflow-archive-drill-5ztg_pgc/restored-deletions.jsonl",
+    "study_deletion_ledger_path": "/private/var/folders/g9/c5ltqdv13hgcs79cg85v2rpm0000gn/T/probeflow-archive-drill-5ztg_pgc/restored-study-deletions.jsonl",
+    "counts": {
+      "sessions": 1,
+      "assets": 3,
+      "upload_chunks": 2,
+      "revisions": 5,
+      "reports": 2,
+      "citations": 2
+    }
+  },
+  "archive_bytes": 4794753,
+  "warning": "提示音与固定转写仅证明软件流程，不代表真人或普通话能力验收。"
+}
