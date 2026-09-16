@@ -22,7 +22,9 @@ export interface StudyConfig {
   confirm_transcript: boolean
   tone: string
 }
-export interface Study { id: string; title: string; archived: boolean; current_version_id?: string; version_number?: number; version: StudyConfig; session_count: number; completed_count: number; total_cost_cny: number; updated_at: string }
+export interface ImportResult { study: StudyConfig; warnings: string[]; mode: AppMode }
+export interface ImportSource { filename: string; text: string; sha256: string; characters: number; warnings: string[] }
+export interface Study { id: string; title: string; archived: boolean; current_version_id?: string; version_number?: number; version: StudyConfig; session_count: number; completed_count: number; total_cost_cny: number; updated_at: string; import_job?: Job | null; import_source?: ImportSource | null }
 export interface Session { id: string; study_id: string; status: string; participant_code: string; mode: 'text' | 'voice'; consent_version?: string; processing_consent: boolean; permanent_consent: boolean; active_seconds: number; target_seconds?: number; budget_cny: number; spent_cny: number; reserved_cny: number; pause_reason?: string; created_at: string; ended_at?: string; retention: 'permanent' }
 export interface Revision { provenance?: Provenance; id: string; text: string; source: string; created_at: string }
 export interface Turn { provenance?: Provenance; audio_provenance?: Provenance | null; id: string; seq: number; role: 'assistant' | 'participant'; status: string; input_mode: 'text' | 'voice'; text: string; revision_id?: string; revisions: Revision[]; audio_asset_id?: string; audio_status?: string; action?: string; topic_id?: string; created_at: string; confirmed: boolean; played_complete?: boolean }

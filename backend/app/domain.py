@@ -106,7 +106,11 @@ def idempotent(db, request, scope, body, operation, session_id=None, confidentia
 
 
 def study_view(db, study):
-    version = db.get(StudyVersion, study.current_version_id)
+    from app.study_import import empty_draft, latest_import
+
+    version = db.get(StudyVersion, study.current_version_id) if study.current_version_id else None
+    imported = latest_import(db, study.id)
+    imported_config = (imported.result or {}).get('study') if imported and imported.status == 'succeeded' else None
     sessions = list(
         db.scalars(
             select(InterviewSession).where(
@@ -119,8 +123,10 @@ def study_view(db, study):
         "title": study.title,
         "archived": study.archived,
         "current_version_id": study.current_version_id,
-        "version_number": version.number,
-        "version": version.config,
+        "version_number": version.number if version else None,
+        "version": version.config if version else imported_config or empty_draft(study.title),
+        "import_job": job_view(imported) if imported else None,
+        "import_source": imported.payload.get('document') if imported else None,
         "session_count": len(sessions),
         "completed_count": sum(s.status == "completed" for s in sessions),
         "total_cost_cny": money(sum(s.spent_micro for s in sessions)),

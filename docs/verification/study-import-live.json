@@ -1,0 +1,478 @@
+{
+  "date": "2026-09-16",
+  "note": "Five fictional document-import jobs inherited local live configuration before test isolation was fixed. Source and structured results are fictional. This is limited integration evidence, not full product or research-quality acceptance. No further live calls were made for automated regression after isolation.",
+  "calls": [
+    {
+      "fixture": "test_existing_study_import_doe0",
+      "job_id": "5b117b4a28b747ed8899095155e5a3f4",
+      "status": "succeeded",
+      "source": {
+        "filename": "调研方案.docx",
+        "format": "docx",
+        "sha256": "d09627165a8afc871ac01c51dacfd675e7e0abae86ba0f53fbf43c840fa71321",
+        "text": "调研名称：材料流转体验\n研究目标 | 理解补充材料的具体经历\n访谈主题：一次补件经历",
+        "warnings": [],
+        "characters": 42
+      },
+      "result": {
+        "study": {
+          "title": "材料流转体验",
+          "objective": "理解补充材料的具体经历",
+          "participant_description": "曾经历过补充材料（补件）流程的用户，例如在政务、金融、教育或公共服务场景中被要求追加提交材料的个体",
+          "target_minutes": 60,
+          "language": "zh-CN",
+          "topics": [
+            {
+              "id": "t1",
+              "title": "补件触发情境",
+              "research_question": "是什么原因或信号导致您被告知需要补充材料？",
+              "priority": 1,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t2",
+              "title": "材料准备过程",
+              "research_question": "您当时如何获取、整理和提交补充材料？遇到了哪些实际困难？",
+              "priority": 2,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t3",
+              "title": "沟通与反馈体验",
+              "research_question": "与受理方（如窗口人员、客服、系统提示）就补件事项的沟通是否清晰、及时、可预期？",
+              "priority": 3,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t4",
+              "title": "等待与结果感知",
+              "research_question": "从提交补件到获得处理结果（通过/退回/再补）之间，您的时间感知、信息透明度和情绪变化如何？",
+              "priority": 4,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t5",
+              "title": "流程信任与公平感",
+              "research_question": "此次补件经历是否影响了您对该服务流程或机构的信任感或公平性判断？为什么？",
+              "priority": 5,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            }
+          ],
+          "exclusions": "不涉及未发生过补件行为的用户；不询问受访者个人身份敏感信息（如身份证号、银行卡号）、未公开的内部操作规则或主观评价他人工作态度。",
+          "glossary": [
+            "补件：指在原有申请/提交基础上，因材料不全、失效、格式不符等原因被要求追加或替换材料的行为",
+            "材料流转：指材料在用户、受理方、审核方等角色间传递、处理、反馈的全过程"
+          ],
+          "budget_cny": "5",
+          "confirm_transcript": true,
+          "tone": "中性、尊重",
+          "retention": "permanent"
+        },
+        "warnings": [
+          "原始文档未明确指定受访者类型，已基于‘一次补件经历’合理推定为有补件经历的终端用户；如实际需覆盖审批人员、系统设计者等角色，请补充说明。",
+          "原始文档未提供具体时长，采用默认值60分钟；各主题分配10分钟，总计50分钟，预留10分钟用于开场、过渡与收尾。",
+          "原始文档仅给出一个访谈主题‘一次补件经历’，未展开子维度；已依据用户体验研究通用框架（情境-行为-交互-感知-归因）生成5个中立、可验证、聚焦具体事件的主题，符合半结构化访谈设计规范。",
+          "请核对目标、受访者和主题；默认单场预算 5 元，逐轮确认开启。"
+        ],
+        "mode": "live"
+      },
+      "ledger": [
+        {
+          "session_id": null,
+          "job_id": "5b117b4a28b747ed8899095155e5a3f4",
+          "role": "interview",
+          "provider": "bailian",
+          "model": "qwen-plus",
+          "region": "cn-beijing",
+          "request_id": "chatcmpl-1431d089-6432-917f-b66e-55b6dc3ee978",
+          "attempt": 1,
+          "status": "succeeded",
+          "usage": "{\"input_tokens\": 1036, \"output_tokens\": 766, \"cached_tokens\": 0, \"reasoning_tokens\": 0, \"audio_seconds\": 0.0, \"characters\": 0, \"request_id\": \"chatcmpl-1431d089-6432-917f-b66e-55b6dc3ee978\", \"source\": \"actual\"}",
+          "amount_micro": 2361,
+          "amount_source": "actual",
+          "price_snapshot": "{\"input_per_million\": \"0.8\", \"source\": \"https://help.aliyun.com/zh/model-studio/model-pricing\", \"cached_per_million\": \"0.8\", \"version\": \"bailian-beijing-2026-09-15\", \"output_per_million\": \"2\", \"model\": \"qwen-plus\", \"region\": \"cn-beijing\"}",
+          "month": "2026-09",
+          "id": "3aa8ffad93164d1ebaa582a1f4fb1b1a",
+          "created_at": 1789542031.409066
+        }
+      ]
+    },
+    {
+      "fixture": "test_upload_reads_document_and0",
+      "job_id": "ded167fe0abb4c7ca4ed7bebdc7559d4",
+      "status": "succeeded",
+      "source": {
+        "filename": "调研方案.pdf",
+        "format": "pdf",
+        "sha256": "f94dc766bc5f40f2569789d2356b0e5d8a224d1e62156c02140d6ad7e8556834",
+        "text": "【PDF 第 1 页】\nResearch objective: understand document handoffs",
+        "warnings": [],
+        "characters": 60
+      },
+      "result": {
+        "study": {
+          "title": "文档交接流程调研",
+          "objective": "了解文档交接过程中的实际操作、挑战与改进点",
+          "participant_description": "参与文档交接的相关人员，如文档撰写者、审核人、接收方、跨部门协作者等",
+          "target_minutes": 60,
+          "language": "zh-CN",
+          "topics": [
+            {
+              "id": "handoff-initiation",
+              "title": "交接启动环节",
+              "research_question": "文档交接通常由谁发起？触发条件是什么（如审批完成、项目阶段变更）？",
+              "priority": 1,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "handoff-methods",
+              "title": "交接方式与工具",
+              "research_question": "当前使用哪些方式传递文档（邮件、共享盘、系统平台等）？各方式的使用频率和原因？",
+              "priority": 2,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "handoff-clarity",
+              "title": "交接内容清晰度",
+              "research_question": "接收方是否能快速理解文档用途、背景、关键要求及后续动作？哪些信息常被遗漏或误解？",
+              "priority": 3,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "handoff-accountability",
+              "title": "责任归属与确认机制",
+              "research_question": "交接是否有明确的责任人、时间节点和确认记录？未确认时如何跟进？",
+              "priority": 4,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "handoff-barriers",
+              "title": "主要障碍与痛点",
+              "research_question": "在文档交接中遇到的最频繁问题是什么（如版本混乱、权限缺失、沟通断层）？对工作造成什么影响？",
+              "priority": 5,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            }
+          ],
+          "exclusions": "不涉及非文档类资产（如代码、数据库、实物样品）的交接；不评估IT系统底层架构或开发需求。",
+          "glossary": [
+            "文档交接",
+            "接收方",
+            "版本控制",
+            "审批流"
+          ],
+          "budget_cny": "5",
+          "confirm_transcript": true,
+          "tone": "中性、尊重",
+          "retention": "permanent"
+        },
+        "warnings": [
+          "原始材料仅含1页PDF，文字极少（60字符），核心信息（受访者筛选标准、具体问题措辞、时长分配依据）缺失，本设计基于行业通用实践与目标‘understand document handoffs’合理推导生成。",
+          "主题数量设为5个（符合1–10上限），总预估时长50分钟，留10分钟用于开场、过渡与收尾，符合60分钟总目标。",
+          "术语表中‘文档交接’‘接收方’等已按中文职场语境标准化，未引入英文缩写或模糊表述。",
+          "请核对目标、受访者和主题；默认单场预算 5 元，逐轮确认开启。"
+        ],
+        "mode": "live"
+      },
+      "ledger": [
+        {
+          "session_id": null,
+          "job_id": "ded167fe0abb4c7ca4ed7bebdc7559d4",
+          "role": "interview",
+          "provider": "bailian",
+          "model": "qwen-plus",
+          "region": "cn-beijing",
+          "request_id": "chatcmpl-26264caf-8ab0-930f-8688-93d6bd9e6c63",
+          "attempt": 1,
+          "status": "succeeded",
+          "usage": "{\"input_tokens\": 1033, \"output_tokens\": 716, \"cached_tokens\": 0, \"reasoning_tokens\": 0, \"audio_seconds\": 0.0, \"characters\": 0, \"request_id\": \"chatcmpl-26264caf-8ab0-930f-8688-93d6bd9e6c63\", \"source\": \"actual\"}",
+          "amount_micro": 2259,
+          "amount_source": "actual",
+          "price_snapshot": "{\"input_per_million\": \"0.8\", \"source\": \"https://help.aliyun.com/zh/model-studio/model-pricing\", \"cached_per_million\": \"0.8\", \"version\": \"bailian-beijing-2026-09-15\", \"output_per_million\": \"2\", \"model\": \"qwen-plus\", \"region\": \"cn-beijing\"}",
+          "month": "2026-09",
+          "id": "ae287229a8554645b2c5793c9124f215",
+          "created_at": 1789541965.939038
+        }
+      ]
+    },
+    {
+      "fixture": "test_upload_reads_document_and1",
+      "job_id": "9241d4bcad584de3b846c9dd6422658e",
+      "status": "succeeded",
+      "source": {
+        "filename": "调研方案.docx",
+        "format": "docx",
+        "sha256": "3685bf87a679c02ed9d79a0b45ffdebe57863c288500961e2dca972b2f580487",
+        "text": "调研名称：材料流转体验\n研究目标 | 理解补充材料的具体经历\n访谈主题：一次补件经历",
+        "warnings": [],
+        "characters": 42
+      },
+      "result": {
+        "study": {
+          "title": "材料流转体验",
+          "objective": "理解补充材料的具体经历",
+          "participant_description": "曾经历过材料补充（补件）流程的用户，如政务办事、银行开户、保险理赔、学历认证等场景中的申请人或代办人",
+          "target_minutes": 60,
+          "language": "zh-CN",
+          "topics": [
+            {
+              "id": "t1",
+              "title": "补件触发情境",
+              "research_question": "什么情况下被要求补充材料？通知方式、时间节点和原因是否清晰？",
+              "priority": 1,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t2",
+              "title": "材料准备过程",
+              "research_question": "补充材料时遇到了哪些困难？（如材料难获取、格式不符、说明模糊、时间紧迫等）",
+              "priority": 1,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t3",
+              "title": "提交与反馈体验",
+              "research_question": "通过什么渠道提交？提交后是否收到确认？多久获得反馈？反馈内容是否明确？",
+              "priority": 1,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t4",
+              "title": "沟通与支持感知",
+              "research_question": "过程中能否便捷联系到负责人？咨询是否得到及时、准确的回应？",
+              "priority": 2,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t5",
+              "title": "整体流程感受与改进建议",
+              "research_question": "对整个补件流程的效率、透明度、友好度如何评价？最希望优化的一个环节是什么？",
+              "priority": 2,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            }
+          ],
+          "exclusions": "不访谈未实际完成过补件流程的人员；不涉及内部审批人员或系统开发方；不讨论与补件无关的其他服务环节（如初次申请填报、结果领取等）",
+          "glossary": [
+            "补件",
+            "材料流转",
+            "政务办事",
+            "申请人"
+          ],
+          "budget_cny": "5",
+          "confirm_transcript": true,
+          "tone": "中性、尊重",
+          "retention": "permanent"
+        },
+        "warnings": [
+          "原始文档仅提供标题、目标与单一主题‘一次补件经历’，未明确受访者画像、具体问题、时长分配及术语定义。已基于调研目标合理推导出5个核心主题（覆盖触发、准备、提交、沟通、评价），并设定各10分钟以匹配60分钟总时长；所有主题均聚焦‘具体事件’证据类型，符合质性研究深度要求。",
+          "‘材料流转体验’为抽象概念，已将其操作化为‘补件’这一可观察、可追溯的具体行为，确保访谈锚定真实经历；术语‘补件’已纳入glossary，确保后续执行一致性。",
+          "预算固定为5元，不可调整；逐轮确认开启、永久保存、中文执行等约束均已严格遵循。",
+          "请核对目标、受访者和主题；默认单场预算 5 元，逐轮确认开启。"
+        ],
+        "mode": "live"
+      },
+      "ledger": [
+        {
+          "session_id": null,
+          "job_id": "9241d4bcad584de3b846c9dd6422658e",
+          "role": "interview",
+          "provider": "bailian",
+          "model": "qwen-plus",
+          "region": "cn-beijing",
+          "request_id": "chatcmpl-72c622d1-43df-952a-8256-194c92c8782f",
+          "attempt": 1,
+          "status": "succeeded",
+          "usage": "{\"input_tokens\": 1041, \"output_tokens\": 745, \"cached_tokens\": 0, \"reasoning_tokens\": 0, \"audio_seconds\": 0.0, \"characters\": 0, \"request_id\": \"chatcmpl-72c622d1-43df-952a-8256-194c92c8782f\", \"source\": \"actual\"}",
+          "amount_micro": 2323,
+          "amount_source": "actual",
+          "price_snapshot": "{\"input_per_million\": \"0.8\", \"source\": \"https://help.aliyun.com/zh/model-studio/model-pricing\", \"cached_per_million\": \"0.8\", \"version\": \"bailian-beijing-2026-09-15\", \"output_per_million\": \"2\", \"model\": \"qwen-plus\", \"region\": \"cn-beijing\"}",
+          "month": "2026-09",
+          "id": "c5c01839d1ca4d4cb2d74d8b7f88284a",
+          "created_at": 1789541984.4767601
+        }
+      ]
+    },
+    {
+      "fixture": "test_upload_reads_document_and2",
+      "job_id": "46a26181caae4731ae2fce17dac50ef5",
+      "status": "succeeded",
+      "source": {
+        "filename": "调研方案.xlsx",
+        "format": "xlsx",
+        "sha256": "5f905ea7490bbb7ff3242efc4bf687dc8de8574e73d736782b6d2dc7083a1882",
+        "text": "【工作表：研究目标】\nA1: 调研名称 | B1: 材料流转体验\nA2: 研究目标 | B2: 理解补充材料的具体经历\n【工作表：访谈提纲】\nA1: 主题 | B1: 问题\nA2: 一次补件经历 | B2: 当时如何处理？\nC3: =1+1",
+        "warnings": [
+          "Excel 公式保留为公式文本，未执行计算；请核对涉及计算的内容。"
+        ],
+        "characters": 120
+      },
+      "result": {
+        "study": {
+          "title": "材料流转体验",
+          "objective": "理解补充材料的具体经历",
+          "participant_description": "",
+          "target_minutes": 60,
+          "language": "zh-CN",
+          "topics": [
+            {
+              "id": "topic-1",
+              "title": "一次补件经历",
+              "research_question": "受访者在实际业务中经历的一次补充材料过程是怎样的？",
+              "priority": 1,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            }
+          ],
+          "exclusions": "",
+          "glossary": [],
+          "budget_cny": "5",
+          "confirm_transcript": true,
+          "tone": "中性、尊重",
+          "retention": "permanent"
+        },
+        "warnings": [
+          "Excel 公式保留为公式文本，未执行计算；请核对涉及计算的内容。",
+          "调研方案中仅明确1个主题（'一次补件经历'），少于推荐的4–6个主题；已按规范生成最小可行主题集，但可能影响信息覆盖完整性，请确认是否需补充其他维度（如：补件原因、沟通渠道、等待时长、情绪反馈、系统支持度等）。",
+          "未提供受访者画像描述（如岗位、业务角色、接触补件频次等），participant_description 为空，可能影响访谈对象筛选与问题适配性。",
+          "未提供术语表（glossary），若存在行业特定缩写或概念（如‘补件’是否指‘补充材料’、是否含内部协查/外部客户提交等场景），建议后续补充定义。",
+          "请核对目标、受访者和主题；默认单场预算 5 元，逐轮确认开启。"
+        ],
+        "mode": "live"
+      },
+      "ledger": [
+        {
+          "session_id": null,
+          "job_id": "46a26181caae4731ae2fce17dac50ef5",
+          "role": "interview",
+          "provider": "bailian",
+          "model": "qwen-plus",
+          "region": "cn-beijing",
+          "request_id": "chatcmpl-dd30adbb-43f3-95ed-8122-de14f1ba6305",
+          "attempt": 1,
+          "status": "succeeded",
+          "usage": "{\"input_tokens\": 1128, \"output_tokens\": 366, \"cached_tokens\": 0, \"reasoning_tokens\": 0, \"audio_seconds\": 0.0, \"characters\": 0, \"request_id\": \"chatcmpl-dd30adbb-43f3-95ed-8122-de14f1ba6305\", \"source\": \"actual\"}",
+          "amount_micro": 1635,
+          "amount_source": "actual",
+          "price_snapshot": "{\"input_per_million\": \"0.8\", \"source\": \"https://help.aliyun.com/zh/model-studio/model-pricing\", \"cached_per_million\": \"0.8\", \"version\": \"bailian-beijing-2026-09-15\", \"output_per_million\": \"2\", \"model\": \"qwen-plus\", \"region\": \"cn-beijing\"}",
+          "month": "2026-09",
+          "id": "912d15d31a2a4875b39e1a246997b297",
+          "created_at": 1789541993.825737
+        }
+      ]
+    },
+    {
+      "fixture": "test_upload_reads_document_and3",
+      "job_id": "7b30d911fd054d04be038eb97d2d27e8",
+      "status": "succeeded",
+      "source": {
+        "filename": "调研方案.pptx",
+        "format": "pptx",
+        "sha256": "946e6705f5760fd03f6b8784bbc16f96b2856e323045483d564b7ace8b74b8b3",
+        "text": "【幻灯片 1】\n材料流转体验\n【幻灯片 2】\n研究目标 | 理解补充材料的具体经历\n访谈主题：一次补件经历",
+        "warnings": [],
+        "characters": 53
+      },
+      "result": {
+        "study": {
+          "title": "材料流转体验",
+          "objective": "理解受访者在办理业务过程中补充材料的具体经历，聚焦一次真实补件事件，探究其动因、流程体验、障碍与应对策略。",
+          "participant_description": "曾于近六个月内经历过至少一次被要求补充材料（补件）的政务服务或业务办理用户（如社保、户籍、工商、税务、不动产登记等场景）。",
+          "target_minutes": 60,
+          "language": "zh-CN",
+          "topics": [
+            {
+              "id": "t1",
+              "title": "补件触发情境",
+              "research_question": "是什么具体原因或条件导致您被要求补件？系统提示、工作人员口头告知，还是其他方式？",
+              "priority": 1,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t2",
+              "title": "材料准备过程",
+              "research_question": "您当时如何获取补件要求？是否清楚需补什么材料？查找、准备、签署或盖章过程中遇到哪些困难？",
+              "priority": 2,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t3",
+              "title": "提交与反馈体验",
+              "research_question": "您通过什么渠道提交补件（线下窗口/邮寄/线上平台）？提交后是否及时获得确认或进一步反馈？",
+              "priority": 3,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t4",
+              "title": "时间与心理影响",
+              "research_question": "从被告知补件到最终完成，耗时多久？该过程对您的时间安排、情绪或信任感产生了哪些影响？",
+              "priority": 4,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            },
+            {
+              "id": "t5",
+              "title": "支持与信息可及性",
+              "research_question": "是否有渠道能快速解答您的补件疑问（如热线、在线客服、指引文档）？这些支持是否有效？",
+              "priority": 5,
+              "evidence_type": "具体事件",
+              "minutes": 10
+            }
+          ],
+          "exclusions": "不访谈未经历过补件的人员；不探讨政策合理性或制度设计层面的宏观建议；不询问涉及个人隐私敏感信息（如身份证号、银行卡号、家庭住址全量信息）；不引导评价具体工作人员个人品行。",
+          "glossary": [
+            "补件：指在业务办理过程中，因材料不全、不符或失效，被办事机构要求另行补充提交指定材料的行为。",
+            "材料流转：指用户提交材料、机构审核、反馈补正要求、用户再次提交、机构复核的全过程交互。"
+          ],
+          "budget_cny": "5",
+          "confirm_transcript": true,
+          "tone": "中性、尊重",
+          "retention": "permanent"
+        },
+        "warnings": [
+          "原始材料仅含2页PPT文字，信息高度简略；访谈主题‘一次补件经历’已作为核心锚点展开为5个中立、行为导向的主题，覆盖典型用户体验链路。",
+          "未明确指定受访者画像细节（如年龄、地域、业务类型），故participant_description按常见政务场景泛化设定；实际执行前建议根据研究目标补充筛选标准。",
+          "未提供具体禁问范围原文，exclusions依据‘理解具体经历’的目标反向推导，排除政策批判、隐私探查与人身评价，确保合规与伦理安全。",
+          "请核对目标、受访者和主题；默认单场预算 5 元，逐轮确认开启。"
+        ],
+        "mode": "live"
+      },
+      "ledger": [
+        {
+          "session_id": null,
+          "job_id": "7b30d911fd054d04be038eb97d2d27e8",
+          "role": "interview",
+          "provider": "bailian",
+          "model": "qwen-plus",
+          "region": "cn-beijing",
+          "request_id": "chatcmpl-2fe08f8a-4b00-95e6-9829-ef3159594a0d",
+          "attempt": 1,
+          "status": "succeeded",
+          "usage": "{\"input_tokens\": 1058, \"output_tokens\": 818, \"cached_tokens\": 0, \"reasoning_tokens\": 0, \"audio_seconds\": 0.0, \"characters\": 0, \"request_id\": \"chatcmpl-2fe08f8a-4b00-95e6-9829-ef3159594a0d\", \"source\": \"actual\"}",
+          "amount_micro": 2483,
+          "amount_source": "actual",
+          "price_snapshot": "{\"input_per_million\": \"0.8\", \"source\": \"https://help.aliyun.com/zh/model-studio/model-pricing\", \"cached_per_million\": \"0.8\", \"version\": \"bailian-beijing-2026-09-15\", \"output_per_million\": \"2\", \"model\": \"qwen-plus\", \"region\": \"cn-beijing\"}",
+          "month": "2026-09",
+          "id": "f240bcac65ca497fa9f8dfa0574dd86f",
+          "created_at": 1789542012.8232708
+        }
+      ]
+    }
+  ]
+}

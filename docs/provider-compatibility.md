@@ -8,9 +8,11 @@
 
 | 角色 | 当前请求 | 实现的用量映射 | 状态 |
 |---|---|---|---|
-| interview / report | `POST {compatible_base}/chat/completions`；`qwen-plus` 类模型；`enable_thinking=false`；可选 JSON object 输出 | 输入、输出、缓存及推理 token；响应未提供可识别 usage 时保留为 `unknown` | 使用 MockTransport 验证请求与响应结构；无真实凭证，未调用 |
-| asr | 同一 OpenAI 兼容端点；本地音频以 Data URL/Base64 放入 `input_audio.data`；术语表作为 system 上下文；`language=zh` | token、音频秒数和 request ID | 使用模拟 HTTP 响应验证；无真实凭证，未调用 |
-| tts | `POST {dashscope_base}/services/aigc/multimodal-generation/generation`；`text`、`voice`、`language_type=Chinese` | 计费字符、token 和 request ID | 使用模拟 HTTP 响应及本地 WAV 下载验证；无真实凭证，未调用 |
+| interview / report | `POST {compatible_base}/chat/completions`；`qwen-plus` 类模型；`enable_thinking=false`；可选 JSON object 输出 | 输入、输出、缓存及推理 token；响应未提供可识别 usage 时保留为 `unknown` | MockTransport 验证；interview 另有 5 次虚构方案导入成功记录，访谈与报告链路仍待实测 |
+| asr | 同一 OpenAI 兼容端点；本地音频以 Data URL/Base64 放入 `input_audio.data`；术语表作为 system 上下文；`language=zh` | token、音频秒数和 request ID | 使用模拟 HTTP 响应验证；尚无真实语音验收记录 |
+| tts | `POST {dashscope_base}/services/aigc/multimodal-generation/generation`；`text`、`voice`、`language_type=Chinese` | 计费字符、token 和 request ID | 使用模拟 HTTP 响应及本地 WAV 下载验证；尚无真实普通话播报验收记录 |
+
+方案导入的有限真实调用证据见 [用量及结果记录](verification/study-import-live.json)。这 5 次调用源于初次自动测试继承本机 live 配置，应用估算 0.011061 元；现已隔离常规测试模式，不把它当作完整产品或复杂文件质量验收。
 
 百炼官方当前说明：Qwen3-ASR-Flash 支持 OpenAI 兼容同步调用，单文件不超过 5 分钟及 10 MB；请求可使用 Base64 Data URL，响应 usage 含 `seconds`。实现进一步将原始分段限制在 7.5 MB，使 Base64 请求内容保持在 10,000,000 字节以内。官方说明 Qwen3-TTS-Flash 非流式请求返回一个有效期 24 小时的音频 URL，并按 `characters` 返回用量；输入上限为 600 字符。
 

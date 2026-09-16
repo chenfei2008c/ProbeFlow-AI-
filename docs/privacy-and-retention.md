@@ -8,6 +8,8 @@ Permanent means “until an authenticated researcher deletes the session or the 
 
 ## Local storage boundary
 
+Research-plan uploads are parsed locally from PDF, DOCX, XLSX or PPTX. With the researcher's explicit agreement, live mode sends extracted text to the configured interview model; mock mode does not. The durable import job records the agreed processing configuration and rejects later configuration changes before processing or retry. Source text, file name/hash and generated drafts are stored in SQLite, included in backups and removed with research deletion, including during restoration from old backups. Original uploaded files are not retained as permanent attachments; researchers must keep their own originals. Spreadsheet formulas, macros and external links are never executed.
+
 `DATA_DIR` contains the SQLite database and archive files. It must be outside the source repository. Session files use session-scoped relative paths such as `audio/<session-id>/...`, `assets/<session-id>/...`, and `chunks/<session-id>/...`; absolute paths, `..` traversal, and paths that resolve through a symlink outside `DATA_DIR` are rejected. File writes use a same-directory temporary file, `fsync`, and atomic replacement. Data directories use mode `0700` and files created by the storage service use mode `0600`.
 
 Before a write, ProbeFlow reserves `MIN_FREE_BYTES` plus the new file size. If that margin is unavailable, it returns `STORAGE_FULL` and leaves existing archives in place. It never evicts a permanent archive to make room. `diagnostics()` reports total primary, formal, temporary, backup, and free bytes, plus the most recent valid backup it can find.

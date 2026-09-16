@@ -4,6 +4,11 @@
 
 ## 前端 API
 
+- `POST /api/admin/studies/import`、`POST /api/admin/studies/{id}/import`：原始文件二进制 body，`X-File-Name` 为 URL 编码文件名，`X-Import-Consent: accepted`，`X-Import-Version` 为 `/api/config` 返回的 consent_version；仍需管理员身份、客户端及幂等头。返回 `{study_id,job_id,source:{filename,format,sha256,text,warnings,characters}}`。新研究 current_version_id/version_number 为 null，未发布不得邀请；Study 增加 import_job 与 import_source，未发布时 version 是已生成草稿或待填的空草稿。
+- 导入沿用持久 Job，kind=`study_import`，成功 result=`{study:<StudyConfig>,warnings:string[],mode}`；状态查询沿用 `/api/admin/jobs/{id}`。任务 payload 保存来源及同意的模式／访谈服务快照，外部处理前和重试时核对；变化返回 IMPORT_CONSENT_CHANGED，不发送旧材料。提取文本仅管理员可见，数据库备份与研究删除覆盖来源和任务，原始上传文件不长期存储。
+- `POST /api/admin/studies/{id}/imports/{job_id}/retry {accept_possible_charge?:false}`：只重试该研究最新失败导入；未知费用须明确确认，无效结构的响应检查点重置，来源保留。上传的网络重试复用原幂等键；已有排队任务返回 IMPORT_BUSY。导入与页面提纲生成互斥，迟到的旧提纲不得覆盖新导入草稿。
+- 旧导入费用未知且需替换方案或重新同意处理配置时，上传额外携带 `X-Accept-Possible-Charge: true`；页面单独主动勾选，允许创建新任务，保留旧未知费用记录。没有该确认仍拒绝，以免“配置变化要求重新上传、旧费用又强制重试”形成阻塞。
+
 - `GET /api/config` → `{mode,consent_version,providers:{asr,interview,tts,report},admin_initialized}`。
 - `POST /api/admin/login {password}`；`POST /api/admin/logout {}`；`GET /api/admin/me` → `{id}`。
 - `GET /api/admin/studies` → 数组；`POST /api/admin/studies` → Study；`GET /api/admin/studies/{id}` → Study；`POST /api/admin/studies/{id}/versions` → Study。研究配置：`{title,objective,participant_description,target_minutes,topics:[{id,title,research_question,priority,evidence_type,minutes}],exclusions,glossary:string[],budget_cny,confirm_transcript:true,tone}`，language 固定 zh-CN。Study：`{id,title,archived,current_version_id,version_number,version:<上述配置>,session_count,completed_count,total_cost_cny,updated_at}`。

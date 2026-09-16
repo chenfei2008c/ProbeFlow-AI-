@@ -784,6 +784,10 @@ def mock_response(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("mock payload must be an object")
     task = payload.get("task")
+    if task == "study_import":
+        from app.study_import import mock_import
+
+        return mock_import(payload['document'])
     if task == "decide":
         return fallback_decision(payload.get("context", {}))
     if task == "report":

@@ -425,3 +425,11 @@ input:focus, textarea:focus, select:focus { border-color: #5f9085; box-shadow: 0
 .coverage-status.covered { color: var(--teal); }
 .coverage-status.skipped { color: #88530b; }
 .report-limitations { background: #fff5df; border: 1px solid #e8d3a5; border-radius: 10px; padding: 14px; }
+.import-panel { margin-bottom: 24px; border-top: 3px solid #527d6f; }
+.import-controls { display: grid; gap: 16px; max-width: 760px; }
+.import-controls .button { justify-self: start; }
+.import-result { margin-top: 20px; padding: 18px; background: #f3f6f1; border-radius: 10px; }
+.import-result li { margin: 8px 0; }
+.import-source { margin-top: 20px; }
+.import-source summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.import-source pre { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: #f7f6f1; font: inherit; }

@@ -239,6 +239,10 @@ class Worker:
         job = db.get(Job, job_id)
         if not job or job.status != "running" or job.lease_token != token:
             raise AppError("JOB_CANCELLED", "任务已取消", 409)
+        if job.kind == "study_import":
+            from app.study_import import ensure_processing
+
+            ensure_processing(job, self.settings)
         if job.session_id and self.storage().is_deleted(job.session_id):
             raise AppError("JOB_CANCELLED", "访谈已删除", 409)
         if job.session_id:
@@ -968,3 +972,8 @@ class Worker:
         with self.database.transaction() as db:
             job = self._current(db, job_id, token)
             self._finish(db, job, {"topics": topics})
+
+    async def _study_import(self, job_id, token):
+        from app.study_import import run_import
+
+        await run_import(self, job_id, token)

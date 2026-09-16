@@ -299,6 +299,8 @@ def create_app(settings: Settings | None = None):
             study = db.get(Study, study_id)
             if not study or study.archived:
                 raise AppError("STUDY_UNAVAILABLE", "研究不存在或已归档", 409)
+            if not study.current_version_id:
+                raise AppError("STUDY_UNPUBLISHED", "请先核对调研方案并发布，再创建邀请。", 409)
 
             def operation():
                 token = secrets.token_urlsafe(32)
@@ -432,6 +434,9 @@ def create_app(settings: Settings | None = None):
     from app.routes_session import register_session_routes
 
     register_session_routes(app, database, settings)
+    from app.study_import import register_import_routes
+
+    register_import_routes(app, database, settings)
 
     @app.get("/{path:path}", include_in_schema=False)
     def frontend(path: str):

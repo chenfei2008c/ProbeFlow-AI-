@@ -6,6 +6,7 @@ import { Job, Study, StudyConfig, Topic, Session } from '../types'
 import { ErrorPanel, JobNotice, Loading, StatusBadge } from '../components/Common'
 import { useApi } from '../hooks/useApi'
 import { InviteManager } from '../components/InviteManager'
+import { StudyImport } from '../components/StudyImport'
 
 export function StudyEditorPage() {
   const { id = '' } = useParams()
@@ -15,28 +16,37 @@ export function StudyEditorPage() {
   const [draft, setDraft] = useState<StudyConfig>()
   const [job, setJob] = useState<Job>()
   const [saving, setSaving] = useState(false)
+  const [importBusy, setImportBusy] = useState(false)
+  const [outlineSubmitting, setOutlineSubmitting] = useState(false)
+  const outlineActive = outlineSubmitting || Boolean(job && ['queued', 'running'].includes(job.status))
   const [invite, setInvite] = useState<{ id: string; url: string; expires_at: string }>()
   const [actionError, setActionError] = useState<ApiError>()
   useEffect(() => { if (study) setDraft(structuredClone(study.version)) }, [study])
   useEffect(() => {
     if (!job || !['queued', 'running'].includes(job.status)) return
+    let cancelled = false
     const timer = window.setTimeout(async () => {
-      const next = await apiRequest<Job>(`/api/admin/jobs/${job.id}`); setJob(next)
-      if (next.status === 'succeeded' && next.result && draft) setDraft({ ...draft, ...(next.result as Partial<StudyConfig>) })
+      try {
+        const next = await apiRequest<Job>(`/api/admin/jobs/${job.id}`)
+        if (cancelled) return
+        setJob(next)
+        if (next.status === 'succeeded' && next.result) setDraft(current => current ? { ...current, ...(next.result as Partial<StudyConfig>) } : current)
+      } catch (value) { if (!cancelled) { setActionError(value as ApiError); setJob(undefined) } }
     }, 1200)
-    return () => clearTimeout(timer)
-  }, [job, draft])
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [job])
   if (loading || !draft) return <div className="page"><Loading label="正在打开研究设计…" />{error && <ErrorPanel error={error} retry={reload} />}</div>
   const field = <K extends keyof StudyConfig>(key: K, value: StudyConfig[K]) => setDraft({ ...draft, [key]: value })
   const updateTopic = (index: number, patch: Partial<Topic>) => field('topics', draft.topics.map((topic, i) => i === index ? { ...topic, ...patch } : topic))
-  const outline = async () => { setActionError(undefined); try { const result = await apiRequest<{ job_id: string }>(`/api/admin/studies/${id}/outline`, { method: 'POST', body: draft }); setJob({ id: result.job_id, kind: '生成访谈提纲', status: 'queued', created_at: new Date().toISOString() }) } catch (value) { setActionError(value as ApiError) } }
+  const outline = async () => { if (outlineActive || importBusy) return; setOutlineSubmitting(true); setActionError(undefined); try { const result = await apiRequest<{ job_id: string }>(`/api/admin/studies/${id}/outline`, { method: 'POST', body: draft }); setJob({ id: result.job_id, kind: '生成访谈提纲', status: 'queued', created_at: new Date().toISOString() }) } catch (value) { setActionError(value as ApiError) } finally { setOutlineSubmitting(false) } }
   const publish = async () => { setSaving(true); setActionError(undefined); try { await apiRequest(`/api/admin/studies/${id}/versions`, { method: 'POST', body: draft }); await reload() } catch (value) { setActionError(value as ApiError) } finally { setSaving(false) } }
   const createInvite = async () => { try { setInvite(await apiRequest(`/api/admin/studies/${id}/invites`, { method: 'POST', body: {} })) } catch (value) { setActionError(value as ApiError) } }
   const archive = async () => { await apiRequest(`/api/admin/studies/${id}/archive`, { method: 'POST', body: { archived: !study?.archived } }); await reload() }
   const remove = async () => { if (!window.confirm('删除研究会删除其全部场次与正式档案。此操作不可撤销，确定继续吗？')) return; await apiRequest(`/api/admin/studies/${id}`, { method: 'DELETE' }); navigate('/studies') }
   return <div className="page editor-page">
-    <div className="page-heading compact"><div><Link to="/studies" className="back-link">← 所有研究</Link><h1>{draft.title}</h1><p>当前发布版本 {study?.version_number ? `V${study.version_number}` : '尚未发布'} · 更新于 {dateTime(study?.updated_at)}</p></div><div className="button-row"><button className="button ghost" onClick={outline}>AI 生成提纲</button><button className="button primary" onClick={publish} disabled={saving}>{saving ? '正在发布…' : '发布新版本'}</button></div></div>
+    <div className="page-heading compact"><div><Link to="/studies" className="back-link">← 所有研究</Link><h1>{draft.title}</h1><p>当前发布版本 {study?.version_number ? `V${study.version_number}` : '尚未发布'} · 更新于 {dateTime(study?.updated_at)}</p></div><div className="button-row"><button className="button ghost" onClick={outline} disabled={importBusy || !draft.objective}>AI 生成提纲</button><button className="button primary" onClick={publish} disabled={saving || importBusy || !draft.objective || !draft.topics.length}>{saving ? '正在发布…' : '发布新版本'}</button></div></div>
     {actionError && <ErrorPanel error={actionError} />}{job && <JobNotice job={job} />}
+    <StudyImport study={study} onUploaded={() => { setJob(undefined) }} onApply={setDraft} onBusy={setImportBusy} disabled={outlineActive || saving} />
     <div className="editor-layout"><section className="editor-main">
       <div className="panel"><div className="section-heading"><div><span className="step">01</span><h2>研究基础</h2></div><small>语言固定为简体中文</small></div><div className="form-grid"><label className="field full"><span>研究标题 <em>必填</em></span><input maxLength={80} value={draft.title} onChange={e => field('title', e.target.value)} /></label><label className="field full"><span>研究目标 <em>必填</em></span><textarea maxLength={2000} rows={4} value={draft.objective} onChange={e => field('objective', e.target.value)} /></label><label className="field"><span>受访者描述</span><textarea maxLength={500} rows={3} value={draft.participant_description} onChange={e => field('participant_description', e.target.value)} /></label><label className="field"><span>主持语气</span><textarea rows={3} value={draft.tone} onChange={e => field('tone', e.target.value)} /></label><label className="field"><span>目标时长</span><select value={draft.target_minutes} onChange={e => field('target_minutes', Number(e.target.value) as StudyConfig['target_minutes'])}>{[15,30,45,60].map(v => <option key={v} value={v}>{v} 分钟</option>)}</select></label><label className="field"><span>单场预算</span><div className="input-prefix"><span>¥</span><input type="number" min="0" step="0.1" value={draft.budget_cny} onChange={e => field('budget_cny', Number(e.target.value))} /></div></label></div></div>
       <div className="panel"><div className="section-heading"><div><span className="step">02</span><h2>访谈主题</h2></div><button className="text-button" onClick={() => field('topics', [...draft.topics, { id: crypto.randomUUID(), title: '', research_question: '', priority: draft.topics.length + 1, evidence_type: '具体事件', minutes: 10 }])}>＋ 添加主题</button></div><p className="section-help">AI 生成的内容只是可编辑草稿。发布前请检查问题是否中立、具体且不诱导。</p><div className="topic-list">{draft.topics.map((topic, index) => <div className="topic-editor" key={topic.id}><span className="topic-index">{String(index + 1).padStart(2, '0')}</span><div className="topic-fields"><input aria-label={`主题 ${index + 1} 标题`} value={topic.title} placeholder="主题名称" onChange={e => updateTopic(index, { title: e.target.value })} /><textarea aria-label={`主题 ${index + 1} 研究问题`} value={topic.research_question} placeholder="希望了解什么？" onChange={e => updateTopic(index, { research_question: e.target.value })} /><div className="inline-fields"><label>证据类型<input value={topic.evidence_type} onChange={e => updateTopic(index, { evidence_type: e.target.value })} /></label><label>建议分钟<input type="number" min="1" value={topic.minutes} onChange={e => updateTopic(index, { minutes: Number(e.target.value) })} /></label><label>优先级<input type="number" min="1" max="10" value={topic.priority} onChange={e => updateTopic(index, { priority: Number(e.target.value) })} /></label></div></div><button aria-label="删除主题" className="icon-button" onClick={() => field('topics', draft.topics.filter((_, i) => i !== index))}>×</button></div>)}</div></div>

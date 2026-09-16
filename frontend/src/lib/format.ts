@@ -12,7 +12,7 @@ export const actionLabel: Record<string, string> = {
   ask_background: '了解背景', ask_example: '了解具体经历', probe_detail: '追问细节', probe_explanation: '了解个人解释',
   clarify: '澄清含义', contrast: '比较情境', verify_summary: '核对理解', transition: '转换主题', close: '准备结束',
 }
-export const jobLabel: Record<string, string> = { decide: '准备下一问', asr: '语音转写', tts: '生成问题语音', report: '生成报告', outline: '生成提纲', summary: '整理工作记忆' }
+export const jobLabel: Record<string, string> = { decide: '准备下一问', asr: '语音转写', tts: '生成问题语音', report: '生成报告', outline: '生成提纲', study_import: '整理调研方案', summary: '整理工作记忆' }
 export const pauseLabel: Record<string, string> = {
   consent_required: '处理配置已变化，请重新确认数据处理与永久保存说明。',
   context_limit: '必要上下文超过处理上限，全部原文已保存，请联系研究者调整或结束并导出。',
