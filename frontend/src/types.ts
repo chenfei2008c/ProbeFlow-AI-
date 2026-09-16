@@ -6,6 +6,7 @@ export interface Coverage { topics: Array<{ id: string; title: string; status: '
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'external_status_unknown' | 'cancelled'
 
 export interface ProviderInfo { provider: string; model: string; region?: string; endpoint_host?: string; available?: boolean | null; configured?: boolean; name?: string }
+export interface ConsentRecord { id: string; version: string; mode: 'voice' | 'text'; processing: boolean; permanent: boolean; retention: string; created_at: string; snapshot?: { notice_version?: string; mode?: AppMode; retention?: string; providers?: Record<string, ProviderInfo & { base_url?: string }> } }
 export interface ProviderMap { asr: ProviderInfo; interview: ProviderInfo; tts: ProviderInfo; report: ProviderInfo }
 export interface Config { mode: AppMode; consent_version: string; providers: ProviderMap; admin_initialized: boolean }
 export interface Topic { id: string; title: string; research_question: string; priority: number; evidence_type: string; minutes: number }
@@ -28,7 +29,7 @@ export interface Turn { provenance?: Provenance; audio_provenance?: Provenance |
 export interface Citation { turn_id: string; revision_id: string; start: number; end: number; quote: string }
 export interface Report { archive_mode?: ArchiveMode; provenance?: Provenance; id: string; version: number; status: string; source_updated: boolean; body: { schema_version?: number; background?: { title: string; objective: string; study_version_id?: string }; coverage?: Coverage; summary?: string; findings?: Array<{ section?: ReportSection; type: string; text: string; citations: Citation[] }>; limitations?: string[]; unanswered?: string[] }; markdown: string; citations: Citation[]; created_at: string }
 export interface Job { id: string; kind: string; status: JobStatus; error_code?: string; error_message?: string; result?: unknown; created_at: string }
-export interface Detail { coverage?: Coverage; archive_mode?: ArchiveMode; session: Session; study: StudyConfig; turns: Turn[]; reports?: Report[]; jobs: Job[]; memory?: { topics: unknown[]; unresolved: unknown[] }; mode: AppMode; consent_version: string; providers: ProviderMap }
+export interface Detail { consents?: ConsentRecord[]; study_version?: { id: string; number: number; prompt_version: string; created_at: string; retention: 'permanent' }; coverage?: Coverage; archive_mode?: ArchiveMode; session: Session; study: StudyConfig; turns: Turn[]; reports?: Report[]; jobs: Job[]; memory?: { topics: unknown[]; unresolved: unknown[] }; mode: AppMode; consent_version: string; providers: ProviderMap }
 export interface ApiEvent { seq: number; type: string; payload: unknown; created_at: string }
 export interface Diagnostics { mode: AppMode; providers: Record<string, unknown>; ffmpeg_available: boolean; recent_errors: Array<Record<string, unknown>>; status?: string; primary_bytes?: number; formal_bytes?: number; temp_bytes?: number; backup_bytes?: number; free_bytes?: number; minimum_free_bytes?: number; deletion_tombstones?: number | null; last_backup?: Record<string, unknown> | string | null; storage?: Record<string, unknown>; backup?: Record<string, unknown> }
 export interface Usage { month_spent_cny: number; month_reserved_cny: number; monthly_limit_cny: number; entries: Array<Record<string, unknown>> }

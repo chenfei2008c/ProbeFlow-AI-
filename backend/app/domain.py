@@ -11,6 +11,7 @@ from app.errors import AppError
 from app.models import (
     Asset,
     Citation,
+    Consent,
     Event,
     InterviewSession,
     Job,
@@ -138,6 +139,7 @@ def session_view(session, admin=True):
         "permanent_consent",
         "pause_reason",
         "retention",
+        "study_version_id",
     )
     result = {field: getattr(session, field) for field in fields}
     result.update(
@@ -145,6 +147,7 @@ def session_view(session, admin=True):
         target_seconds=session.target_seconds,
         created_at=iso(session.created_at),
         ended_at=iso(session.ended_at),
+        expires_at=iso(session.expires_at),
     )
     if admin:
         result.update(
@@ -268,7 +271,8 @@ def report_view(db, report):
 def detail(db, session, settings, admin=True):
     turns = list(db.scalars(select(Turn).where(Turn.session_id == session.id).order_by(Turn.seq)))
     jobs = list(db.scalars(select(Job).where(Job.session_id == session.id).order_by(Job.created_at)))
-    config = dict(db.get(StudyVersion, session.study_version_id).config)
+    version = db.get(StudyVersion, session.study_version_id)
+    config = dict(version.config)
     if not admin:
         config = {
             key: config[key]
@@ -294,6 +298,30 @@ def detail(db, session, settings, admin=True):
             reports=[report_view(db, r) for r in reports],
             memory=memory.content if memory else {"topics": [], "unresolved": []},
             coverage=topic_coverage(config, result["turns"], memory.content if memory else {}),
+            study_version={
+                "id": version.id,
+                "number": version.number,
+                "prompt_version": version.prompt_version,
+                "created_at": iso(version.created_at),
+                "retention": version.retention,
+            },
+            consents=[
+                {
+                    "id": record.id,
+                    "version": record.version,
+                    "mode": record.mode,
+                    "processing": record.processing,
+                    "permanent": record.permanent,
+                    "retention": record.retention,
+                    "created_at": iso(record.created_at),
+                    "snapshot": record.snapshot,
+                }
+                for record in db.scalars(
+                    select(Consent)
+                    .where(Consent.session_id == session.id)
+                    .order_by(Consent.created_at, Consent.id)
+                )
+            ],
         )
     provenances = [r["provenance"] for t in result["turns"] for r in t["revisions"]]
     provenances.extend(t["audio_provenance"] for t in result["turns"] if t["audio_provenance"] is not None)

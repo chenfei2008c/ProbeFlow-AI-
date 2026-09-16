@@ -599,7 +599,7 @@ def register_session_routes(app, database, settings):
             "runtime_mode": settings.mode,
             "label": marker,
             "retention": "permanent",
-            "prompt_version": "V1.1",
+            "prompt_version": data["study_version"]["prompt_version"],
             "exported_at": iso(time.time()),
         }
         if format == "json":

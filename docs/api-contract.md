@@ -70,6 +70,8 @@ decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/ne
 
 ## 永久档案来源与补充授权
 
+- Session 新增 `study_version_id` 和 `expires_at:null`。管理端 Detail 新增 `study_version:{id,number,prompt_version,created_at,retention}` 及按时间排列的 `consents:[{id,version,mode,processing,permanent,retention,created_at,snapshot}]`；snapshot 为当时保存的不含凭证的处理配置。旧记录缺少快照时返回原有空对象，不按当前配置推断。
+- JSON 完整导出包含上述研究版本和全部同意历史，顶层 `prompt_version` 使用该场冻结研究版本的值。管理端可展开历史记录核对；受访者 Detail 不提供管理端同意历史列表。
 - 当前 `Detail.mode` 仅描述运行环境。`Detail.archive_mode` 和 `Report.archive_mode` 描述档案来源，可为 mock/live/mixed/unknown；未知来源不能按当前环境推断为真实。
 - 文本修订、音频资产、报告持久保存 `provenance: {mode,calls?:[{mode,provider,model,region,role}],source_modes?:[]}`。外部调用来源与检查点一起保存，重试复用检查点时不改写。后续文字修订和报告保留输入来源标识。
 - Turn 返回当前文本 `provenance`、全部 revisions 的 `provenance` 以及可为空的 `audio_provenance`；Report 返回自身 `provenance`。旧数据库缺少这些字段的档案迁移为来源未确认，不补造历史信息。
