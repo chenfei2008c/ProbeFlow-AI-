@@ -239,7 +239,9 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     if (!unfinished || busy || recording || !window.confirm('这一轮录音尚未完整提交。重新回答将放弃本设备暂存的这一轮录音；已正式保存的录音和文字不受影响。确定重新回答吗？')) return
     setBusy(true); setError(undefined)
     try {
-      coordinator.current?.stop(); releaseMic()
+      const stopped = coordinator.current?.stopAndPreserve()
+      releaseMic()
+      await stopped
       await control('rerecord', { turn_id: unfinished.id })
       for (const chunk of await indexedChunkStorage.list(unfinished.id)) await indexedChunkStorage.remove(unfinished.id, chunk.seq)
     } catch (value) { setError(value as Error) } finally { setBusy(false) }
@@ -248,6 +250,7 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     if (!unfinished) return
     setBusy(true); setError(undefined)
     try {
+      await coordinator.current?.stopAndPreserve()
       if (detail.session.status === 'paused') await control('resume')
       const resumed = new RecordingCoordinator({ consented: true, storage: indexedChunkStorage, upload })
       const chunks = await resumed.resume(unfinished.id)

@@ -30,6 +30,7 @@ async function open(mode: 'text' | 'voice' = 'text', extraTurns: Turn[] = []) {
       current.turns.push({ ...question, id: 'q2', seq: 3, text: '然后发生了什么？' })
       return { job_id: 'decide2' } as never
     }
+    if (path.endsWith('/finalize')) { current.turns.at(-1)!.status = 'transcribing'; return { job_id: 'asr1' } as never }
     if (path === '/api/participant/control') {
       if (body.action === 'rerecord') current.turns.find(t => t.id === body.turn_id)!.status = 'superseded'
       if (body.action === 'pause') current.session.status = 'paused'
@@ -169,4 +170,28 @@ test('failed voice authorization retains the draft and never opens the microphon
   expect(current.session.mode).toBe('text')
   await userEvent.click(screen.getByRole('button', { name: '继续使用文字回答' }))
   expect(screen.getByPlaceholderText('写下你的回答…')).toHaveValue('授权失败也要保留的草稿')
+})
+
+test.each(['restore', 'discard'] as const)('%s waits for the original recorder before using the browser cache', async action => {
+  await open('voice')
+  vi.spyOn(RecordingCoordinator.prototype, 'start').mockResolvedValue('audio/webm')
+  let settle!: () => void
+  vi.spyOn(RecordingCoordinator.prototype, 'stopAndPreserve').mockImplementation(() => new Promise(resolve => { settle = resolve }))
+  const resume = vi.spyOn(RecordingCoordinator.prototype, 'resume').mockResolvedValue([{ seq: 0, sha256: 'final-hash' }])
+  vi.mocked(indexedChunkStorage.list).mockResolvedValue([{ turnId: 'answer1', seq: 0, blob: new Blob(['final audio']), mimeType: 'audio/webm' }])
+  await userEvent.click(screen.getByRole('button', { name: /开始回答/ }))
+  await userEvent.click(screen.getByRole('button', { name: '暂停' }))
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  await userEvent.click(await screen.findByRole('button', { name: action === 'restore' ? '恢复上传' : '重新回答这一轮' }))
+  expect(resume).not.toHaveBeenCalled()
+  expect(indexedChunkStorage.remove).not.toHaveBeenCalled()
+  expect(writes().filter(([, options]) => (options?.body as { action?: string }).action === 'rerecord')).toHaveLength(0)
+  await act(async () => settle())
+  if (action === 'restore') {
+    expect(resume).toHaveBeenCalledWith('answer1')
+    expect(apiRequest).toHaveBeenCalledWith('/api/participant/turns/answer1/finalize', { method: 'POST', body: { chunks: [{ seq: 0, sha256: 'final-hash' }] } })
+  } else {
+    expect(current.turns.at(-1)?.status).toBe('superseded')
+    expect(indexedChunkStorage.remove).toHaveBeenCalledWith('answer1', 0)
+  }
 })

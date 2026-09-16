@@ -252,3 +252,88 @@ def test_long_report_reads_every_source_and_aggregates_with_frozen_retry_snapsho
     assert provider.tasks.count("report_merge") == 3  # One unknown attempt, then two pairwise merges.
     with app.state.db.read() as db:
         assert len(list(db.scalars(select(Ledger).where(Ledger.job_id == jid)))) == 6
+
+
+def test_oversized_report_repair_is_not_sent_or_billed_and_retry_keeps_original_sources(admin, app):
+    from app.interview import mock_response
+
+    participant, sid = ready(admin, app, "text")
+    tid, jid = finish_answer(participant)
+    original = admin.get(f"/api/admin/sessions/{sid}/export").json()
+
+    class Provider:
+        calls = 0
+
+        async def text(self, role, messages, **kwargs):
+            assert role == "report"
+            self.calls += 1
+            if self.calls == 1:
+                return TextResult("无效且过长的输出" * 8000, Usage(source="mock"))
+            return TextResult(
+                json.dumps(mock_response(json.loads(messages[-1]["content"])), ensure_ascii=False),
+                Usage(source="mock"),
+            )
+
+    provider = Provider()
+    worker = Worker(app.state.db, app.state.settings, provider=provider)
+    asyncio.run(worker.run_once())
+    assert provider.calls == 1  # An oversized repair must never cross the provider boundary.
+    with app.state.db.read() as db:
+        job = db.get(Job, jid)
+        assert job.status == "failed"
+        assert job.error_code == "REPORT_CONTEXT_TOO_LARGE"
+        assert len(list(db.scalars(select(Ledger).where(Ledger.job_id == jid)))) == 1
+        assert list(db.scalars(select(Report).where(Report.session_id == sid))) == []
+    after = admin.get(f"/api/admin/sessions/{sid}/export").json()
+    assert after["turns"] == original["turns"]
+    assert after["consents"] == original["consents"]
+    assert after["session"]["status"] == "completed"
+    assert admin.post(
+        f"/api/admin/turns/{tid}/revision", json={"text": "失败后补充的勘误"}, headers=headers()
+    ).status_code == 200
+    assert admin.post(
+        f"/api/admin/sessions/{sid}/reports", json={"retry_job_id": jid}, headers=headers()
+    ).status_code == 200
+    asyncio.run(worker.run_once())
+    assert provider.calls == 2
+    report = admin.get(f"/api/admin/sessions/{sid}").json()["reports"][0]
+    assert report["source_updated"] is True
+    assert report["citations"][0]["quote"] == "我在上周提交过一份虚构材料。"
+    with app.state.db.read() as db:
+        assert len(list(db.scalars(select(Ledger).where(Ledger.job_id == jid)))) == 2
+
+
+def test_oversized_original_report_source_stays_exportable_and_is_never_sent(admin, app):
+    from app.domain import add_text_revision, new_turn
+    from app.interview import mock_response
+    from app.models import InterviewSession
+
+    participant, sid = ready(admin, app, "text")
+    source = "完整虚构来源" * 11000
+    with app.state.db.transaction() as db:
+        session = db.get(InterviewSession, sid)
+        turn = new_turn(db, session, "participant", "text", "confirmed", confirmed=True, topic_id="T1")
+        add_text_revision(db, turn, source, "participant_confirmed", "participant")
+        tid = turn.id
+    jid = participant.post("/api/participant/control", json={"action": "end"}, headers=headers()).json()["job_id"]
+
+    class Provider:
+        calls = []
+
+        async def text(self, role, messages, **kwargs):
+            self.calls.append(messages)
+            return TextResult(
+                json.dumps(mock_response(json.loads(messages[-1]["content"])), ensure_ascii=False),
+                Usage(source="mock"),
+            )
+
+    provider = Provider()
+    asyncio.run(Worker(app.state.db, app.state.settings, provider=provider).run_once())
+    assert len(provider.calls) == 1  # The preceding short question can be processed separately.
+    assert source not in json.dumps(provider.calls, ensure_ascii=False)
+    with app.state.db.read() as db:
+        assert db.get(Job, jid).error_code == "REPORT_CONTEXT_TOO_LARGE"
+        assert len(list(db.scalars(select(Ledger).where(Ledger.job_id == jid)))) == 1
+    exported = admin.get(f"/api/admin/sessions/{sid}/export").json()
+    assert next(turn for turn in exported["turns"] if turn["id"] == tid)["text"] == source
+    assert exported["reports"] == []

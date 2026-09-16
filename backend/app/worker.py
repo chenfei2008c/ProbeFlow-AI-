@@ -746,6 +746,19 @@ class Worker:
     async def _checked_report(self, job_id, token, key, messages, sources, allowed_citations=None):
         from app.interview import ReportError, validate_report
 
+        def validate_size(content):
+            if sum(len(message["content"]) for message in content) > 64000:
+                raise AppError(
+                    "REPORT_CONTEXT_TOO_LARGE",
+                    "报告请求材料超过当前处理上限，未截断来源；档案已保留，可导出后人工整理。",
+                    409,
+                )
+
+        def remember_invalid_step():
+            with self.database.transaction() as db:
+                job = self._current(db, job_id, token)
+                job.payload = {**job.payload, "_report_invalid_step": key}
+
         def checked(raw):
             report = validate_report(raw, sources)
             if allowed_citations is not None:
@@ -755,12 +768,7 @@ class Worker:
                             raise ReportError("merge citation was not present in extracted evidence")
             return report
 
-        if sum(len(message["content"]) for message in messages) > 64000:
-            raise AppError(
-                "REPORT_CONTEXT_TOO_LARGE",
-                "报告汇总材料超过当前处理上限，未截断来源；档案已保留，可导出后人工整理。",
-                409,
-            )
+        validate_size(messages)
         result = await self._text(job_id, token, key, "report", messages, max_tokens=4096)
         try:
             return checked(result.text)
@@ -770,20 +778,24 @@ class Worker:
                 repair=f"只修复结构和引文错误：{exc}；仍须使用给定的来源与修订，不得补造引文。",
                 previous_output=result.text,
             )
+            repair_messages = [messages[0], {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}]
+            try:
+                validate_size(repair_messages)
+            except AppError:
+                remember_invalid_step()
+                raise
             repaired = await self._text(
                 job_id,
                 token,
                 key + "-repair",
                 "report",
-                [messages[0], {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                repair_messages,
                 max_tokens=4096,
             )
             try:
                 return checked(repaired.text)
             except ReportError as error:
-                with self.database.transaction() as db:
-                    job = self._current(db, job_id, token)
-                    job.payload = {**job.payload, "_report_invalid_step": key}
+                remember_invalid_step()
                 raise AppError(
                     "REPORT_INVALID",
                     "报告经过一次修复仍未通过结构或引用校验，未发布；原始档案保留，可人工重试。",

@@ -143,6 +143,23 @@ def test_text_consent_cannot_upload_voice_and_safe_time_limit(admin, app):
     assert response.json()["code"] == "TIME_LIMIT"
 
 
+def test_abandoned_recording_rejects_a_late_finalize_from_another_open_page(admin, app):
+    p, sid = ready(admin, app)
+    tid = p.post("/api/participant/turns", json={"input_mode": "voice"}, headers=headers()).json()["turn_id"]
+    _, item = upload(p, tid, 0, wav_bytes())
+    assert p.post(
+        "/api/participant/control", json={"action": "rerecord", "turn_id": tid}, headers=headers()
+    ).status_code == 200
+    response = p.post(f"/api/participant/turns/{tid}/finalize", json={"chunks": [item]}, headers=headers())
+    assert response.status_code == 409
+    with app.state.db.read() as db:
+        turn = db.get(Turn, tid)
+        assert turn.status == "superseded"
+        assert turn.finalized_chunks is None
+        assert db.scalar(select(Job).where(Job.dedup_key == f"asr:{tid}")) is None
+    assert admin.get(f"/api/admin/sessions/{sid}/export").status_code == 200
+
+
 def test_failed_asr_can_be_manually_confirmed_without_losing_original(admin, app):
     p, sid = ready(admin, app)
     tid = p.post("/api/participant/turns", json={"input_mode": "voice"}, headers=headers()).json()["turn_id"]

@@ -84,7 +84,7 @@ def requeue_job(job, sid, accept_possible_charge):
         raise AppError("JOB_NOT_RETRYABLE", "该任务不能重试", 409)
     if job.status == "external_status_unknown" and not accept_possible_charge:
         raise AppError("CHARGE_CONFIRMATION_REQUIRED", "上次请求可能已计费，重试需要明确确认", 409)
-    if job.kind == "report" and job.error_code == "REPORT_INVALID":
+    if job.kind == "report" and job.error_code in {"REPORT_INVALID", "REPORT_CONTEXT_TOO_LARGE"}:
         payload = dict(job.payload)
         invalid_step = payload.pop("_report_invalid_step", None)
         if invalid_step:
@@ -230,6 +230,8 @@ def register_session_routes(app, database, settings):
                         raise AppError("FINALIZE_CONFLICT", "已提交的音频清单不能改变", 409)
                     job = db.scalar(select(Job).where(Job.dedup_key == f"asr:{turn.id}"))
                     return {"job_id": job.id}
+                if turn.input_mode != "voice" or turn.status not in {"recording", "uploading"}:
+                    raise AppError("TURN_NOT_RECORDING", "这一轮不再接收录音提交，请使用当前回答。", 409)
                 if [item.seq for item in body.chunks] != list(range(len(records))) or len(manifest) != len(
                     records
                 ):
