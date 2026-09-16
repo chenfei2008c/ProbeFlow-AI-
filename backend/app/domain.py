@@ -257,6 +257,7 @@ def report_view(db, report):
         "created_at": iso(report.created_at),
         "citations": [
             {
+                "id": c.id,
                 "turn_id": c.turn_id,
                 "revision_id": c.revision_id,
                 "start": c.start,

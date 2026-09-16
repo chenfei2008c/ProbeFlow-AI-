@@ -1,14 +1,12 @@
 """Kill only a test-owned worker subprocess, then start the real app lifecycle."""
 
-import os
-from pathlib import Path
-import subprocess
-import sys
 import time
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+
+from process_helpers import kill_at_marker
 
 from app.main import create_app
 from app.models import Job, Ledger, Reservation
@@ -54,28 +52,7 @@ def test_killed_report_worker_recovers_without_blind_paid_repetition(
     tid, jid = finish_answer(participant)
     before = admin.get(f"/api/admin/sessions/{sid}").json()
     marker = tmp_path / "worker-ready"
-    child = subprocess.Popen(
-        [sys.executable, "-c", WORKER_SCRIPT, str(app.state.settings.data_dir), str(marker), stage],
-        cwd=tmp_path,
-        env={"PATH": os.environ.get("PATH", ""), "PYTHONPATH": str(Path(__file__).parents[1])},
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    try:
-        deadline = time.monotonic() + 10
-        while not marker.exists() and child.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert marker.exists(), (
-            child.communicate(timeout=1) if child.poll() is not None else "worker did not reach checkpoint"
-        )
-        assert child.poll() is None
-        child.kill()
-        child.communicate(timeout=5)
-        assert child.returncode != 0
-    finally:
-        if child.poll() is None:
-            child.kill()
-            child.communicate(timeout=5)
+    kill_at_marker(WORKER_SCRIPT, app.state.settings.data_dir, marker, stage)
 
     class ForbiddenProvider:
         calls = 0

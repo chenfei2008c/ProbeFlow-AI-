@@ -1,6 +1,4 @@
-import csv
 import hashlib
-import io
 import json
 import secrets
 import shutil
@@ -28,6 +26,7 @@ from app.domain import (
     session_view,
 )
 from app.errors import AppError
+from app.exporting import csv_export, markdown_export
 from app.models import (
     Asset,
     Auth,
@@ -53,7 +52,7 @@ from app.schemas import (
     TurnInput,
 )
 from app.security import authenticate, digest
-from app.provenance import LABELS, archive_mode
+from app.provenance import LABELS
 
 
 def participant_turn(db, request, turn_id, active=False):
@@ -655,47 +654,9 @@ def register_session_routes(app, database, settings):
                 "json",
             )
         elif format == "csv":
-            buffer = io.StringIO(newline="")
-            writer = csv.writer(buffer)
-            writer.writerow(
-                ["模式", "轮次", "发言ID", "文本版本", "角色", "来源", "文本", "创建时间", "保存策略"]
-            )
-            for turn in data["turns"]:
-                for revision in turn["revisions"]:
-                    text = revision["text"]
-                    if text.lstrip().startswith(("=", "+", "-", "@", "\t", "\r")):
-                        text = "'" + text
-                    writer.writerow(
-                        [
-                            LABELS[archive_mode([revision["provenance"]])],
-                            turn["seq"],
-                            turn["id"],
-                            revision["id"],
-                            turn["role"],
-                            revision["source"],
-                            text,
-                            revision["created_at"],
-                            "permanent",
-                        ]
-                    )
-            content, mime, suffix = "\ufeff" + buffer.getvalue(), "text/csv", "csv"
+            content, mime, suffix = csv_export(data, metadata), "text/csv", "csv"
         elif format == "markdown":
-            from app.interview import render_text
-
-            report = data["reports"][-1] if data["reports"] else None
-            content = f"# 访谈记录\n\n{marker}\n\n保存策略：永久保存\n\n"
-            if report:
-                content += (
-                    "**来源已更新，请重新生成报告。**\n\n" if report["source_updated"] else ""
-                ) + report["markdown"]
-            else:
-                content += "报告尚未生成。\n\n"
-            content += "\n## 逐字稿与修订历史\n\n"
-            for turn in data["turns"]:
-                content += f"### {turn['seq']} · {turn['role']}\n\n"
-                for number, revision in enumerate(turn["revisions"], 1):
-                    content += f"文本版本 {number} · {revision['source']} · {LABELS[archive_mode([revision['provenance']])]}\n\n{render_text(revision['text'])}\n\n"
-            mime, suffix = "text/markdown", "md"
+            content, mime, suffix = markdown_export(data, metadata), "text/markdown", "md"
         else:
             raise AppError("INVALID_FORMAT", "导出格式仅支持 json、csv、markdown")
         return Response(

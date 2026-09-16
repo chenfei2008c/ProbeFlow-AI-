@@ -76,6 +76,9 @@ decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/ne
 - 文本修订、音频资产、报告持久保存 `provenance: {mode,calls?:[{mode,provider,model,region,role}],source_modes?:[]}`。外部调用来源与检查点一起保存，重试复用检查点时不改写。后续文字修订和报告保留输入来源标识。
 - Turn 返回当前文本 `provenance`、全部 revisions 的 `provenance` 以及可为空的 `audio_provenance`；Report 返回自身 `provenance`。旧数据库缺少这些字段的档案迁移为来源未确认，不补造历史信息。
 - JSON 导出的 `mode` 是档案来源，`runtime_mode` 才是导出时运行环境；来源服务由各条 provenance.calls 记录，不用当前 providers 代替历史供应商。CSV 每个修订带来源标识，Markdown 含总标识及各版本标识。
+- `Report.citations` 返回持久引用 `id`，并保留 turn_id、revision_id、start、end、quote；模型报告 body 的引用结构不变，模型不生成数据库 ID。
+- CSV 前 9 列保持原顺序，后续列补充研究 ID／标题／版本、提示词版本、保存的模型调用、确认标记、是否当前修订、前一修订、引用索引及导出时间。引用索引为 JSON 数组，每项关联持久引用 ID、报告 ID／版本／时间／来源和精确文本范围。所有外部输入列均执行公式防护。
+- Markdown 展示最新报告正文、全部报告的版本与引用索引及全部文本修订；历史模型缺失时明确“未记录具体模型”，不使用当前配置替代。新增标题、模型和引用元数据与原文一样转义。JSON 继续作为包含全部报告正文的完整导出。
 - 已完成场次处理配置改变后，既有档案仍可读取、播放及导出，新处理须受访者补充同意。沿用 `/api/participant/consent`，必须保留原输入方式，两项主动勾选；成功只记录新版授权，不重开访谈、不创建下一问、不自动重试旧任务。受访者可通过原凭证或恢复邀请进入结束页查看更新说明。
 
 ## 主题覆盖与报告来源
