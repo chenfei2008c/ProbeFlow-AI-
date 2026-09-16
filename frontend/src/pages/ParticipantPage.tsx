@@ -26,7 +26,7 @@ export function ParticipantPage({ config: initialConfig }: { config: Config }) {
     const next = await apiRequest<Detail>('/api/participant/session')
     setDetail(next)
     if (['finalizing', 'completed', 'withdrawn'].includes(next.session.status)) setScreen('finished')
-    else if (next.session.processing_consent && next.session.permanent_consent && next.session.consent_version === next.consent_version) setScreen(current => current === 'opening' || current === 'consent' ? (next.session.mode === 'voice' ? 'device' : 'interview') : current)
+    else if (next.session.processing_consent && next.session.permanent_consent && next.session.consent_version === next.consent_version) setScreen(current => current === 'opening' || current === 'consent' ? (next.session.mode === 'voice' && next.session.status === 'ready' ? 'device' : 'interview') : current)
     else {
       setMicStream(current => { stopMediaStream(current); return undefined })
       if (next.session.consent_version) setMode(next.session.mode)
@@ -103,6 +103,9 @@ function ParticipantFrame({ config, children }: { config: Config; children: Reac
 
 function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reload, onFinished }: { detail: Detail; micStream?: MediaStream; requestMic: () => Promise<MediaStream>; releaseMic: () => void; syncIssue: string; reload: () => Promise<void>; onFinished: (withdrawn?: boolean) => void }) {
   const [text, setText] = useState('')
+  const [answerMode, setAnswerMode] = useState(detail.session.mode)
+  const [answerDraft, setAnswerDraft] = useState({ text: '', questionId: '' })
+  const [voiceUpgrade, setVoiceUpgrade] = useState(false)
   const [recording, setRecording] = useState(false)
   const [recordSeconds, setRecordSeconds] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -111,26 +114,23 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
   const [error, setError] = useState<ApiError | Error>()
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState<Turn>()
-  const [recoverable, setRecoverable] = useState<Turn>()
   const [manualText, setManualText] = useState('')
   const coordinator = useRef<RecordingCoordinator | undefined>(undefined)
   const audio = useRef<HTMLAudioElement>(null)
   const latestQuestion = [...detail.turns].reverse().find(turn => turn.role === 'assistant')
   const pendingTranscript = [...detail.turns].reverse().find(turn => turn.role === 'participant' && turn.status === 'confirming')
+  const pendingAnswer = [...detail.turns].reverse().find(turn => turn.role === 'participant' && ['recording', 'uploading', 'transcribing', 'confirming'].includes(turn.status))
+  const unfinished = pendingAnswer && ['recording', 'uploading'].includes(pendingAnswer.status) ? pendingAnswer : undefined
   const latestJob = detail.jobs.at(-1)
   const currentJob = latestJob && ['queued', 'running', 'failed', 'external_status_unknown'].includes(latestJob.status) ? latestJob : undefined
-  const processing = currentJob && ['queued', 'running'].includes(currentJob.status)
+  const processing = detail.jobs.some(job => ['queued', 'running'].includes(job.status))
+  const modeBlocked = Boolean(busy || recording || processing || confirming || pendingAnswer)
   const targetSeconds = detail.session.target_seconds ?? detail.study.target_minutes * 60
   const timeBoundary = sessionTimeBoundary(detail.session.active_seconds, targetSeconds)
   const manualTurnId = manualTranscriptTurnId(currentJob, detail.turns)
   const micReady = Boolean(micStream?.getAudioTracks().some(track => track.readyState === 'live'))
 
   useEffect(() => { if (pendingTranscript) { setConfirming(pendingTranscript); setText(pendingTranscript.text) } }, [pendingTranscript?.id])
-  useEffect(() => {
-    const unfinished = [...detail.turns].reverse().find(turn => turn.role === 'participant' && ['recording', 'uploading'].includes(turn.status))
-    if (!unfinished) { setRecoverable(undefined); return }
-    void indexedChunkStorage.list(unfinished.id).then(chunks => setRecoverable(chunks.length ? unfinished : undefined)).catch(() => undefined)
-  }, [detail.turns])
   const control = useCallback(async (action: string, extra: Record<string, unknown> = {}) => { await apiRequest('/api/participant/control', { method: 'POST', body: { action, ...extra } }); await reload() }, [reload])
 
   useEffect(() => {
@@ -163,14 +163,20 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     return retryApiRequest<{ seq: number; sha256: string }>(`/api/participant/turns/${chunk.turnId}/chunks/${chunk.seq}`, { method: 'PUT', body: chunk.blob, headers: { 'Content-Type': chunk.mimeType, 'X-Chunk-SHA256': hash }, idempotencyKey: `${chunk.turnId}:${chunk.seq}:${hash}` })
   }
   const startRecording = async () => {
-    setError(undefined); setWarning(''); setRecordSeconds(0)
+    if (busy || recording || pendingAnswer || processing) return
+    if (detail.session.mode !== 'voice') { setVoiceUpgrade(true); return }
+    setBusy(true); setError(undefined); setWarning(''); setRecordSeconds(0)
     try {
-      const stream = micReady && micStream ? micStream : await requestMic()
       const mimeType = detectRecorderMimeType()
+      coordinator.current = new RecordingCoordinator({ consented: detail.session.processing_consent && detail.session.permanent_consent, storage: indexedChunkStorage, upload, onSafetyPause: reason => { setWarning(reason); setRecording(false); void control('pause', { reason }).catch(value => setError(value as Error)) } })
+      await coordinator.current.ensureCapacity()
+      const stream = micReady && micStream ? micStream : await requestMic()
       const created = await apiRequest<{ turn_id: string }>('/api/participant/turns', { method: 'POST', body: { input_mode: 'voice', mime_type: mimeType } })
-      coordinator.current = new RecordingCoordinator({ consented: detail.session.processing_consent && detail.session.permanent_consent, storage: indexedChunkStorage, upload, onSafetyPause: reason => { setWarning(reason); setRecording(false); void control('pause', { reason }) } })
       await coordinator.current.start(stream, created.turn_id); setRecording(true)
-    } catch (value) { setError(value as Error) }
+    } catch (value) {
+      coordinator.current?.stop(); releaseMic(); setError(value as Error)
+      await reload().catch(() => undefined)
+    } finally { setBusy(false) }
   }
   const finishRecording = async () => {
     if (!coordinator.current || busy) return false
@@ -187,8 +193,14 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     } catch (value) { setError(value as Error); return false } finally { releaseMic(); setBusy(false) }
   }
   const submitText = async (event: FormEvent) => {
-    event.preventDefault(); if (!text.trim()) return; setBusy(true); setError(undefined)
-    try { const result = await apiRequest<{ turn_id: string; job_id?: string }>('/api/participant/turns', { method: 'POST', body: { input_mode: 'text', text: text.trim() } }); if (result.job_id) { setText(''); await reload() } else setConfirming({ id: result.turn_id, text: text.trim() } as Turn) }
+    event.preventDefault(); if (!answerDraft.text.trim() || busy || pendingAnswer) return; setBusy(true); setError(undefined)
+    try {
+      const submitted = answerDraft.text.trim()
+      const result = await apiRequest<{ turn_id: string; job_id?: string }>('/api/participant/turns', { method: 'POST', body: { input_mode: 'text', text: submitted } })
+      setAnswerDraft({ text: '', questionId: '' })
+      if (result.job_id) await reload()
+      else { setText(submitted); setConfirming({ id: result.turn_id, text: submitted } as Turn) }
+    }
     catch (value) { setError(value as ApiError) } finally { setBusy(false) }
   }
   const confirm = async () => {
@@ -197,17 +209,43 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     catch (value) { setError(value as ApiError) } finally { setBusy(false) }
   }
   const stopPlayback = async () => { audio.current?.pause(); setPlaying(false); if (latestQuestion) await control('playback_done', { turn_id: latestQuestion.id, played_complete: false }) }
+  const chooseAnswerMode = async (next: 'text' | 'voice') => {
+    if (modeBlocked || next === answerMode) return
+    setBusy(true); setError(undefined)
+    try {
+      if (playing) await stopPlayback()
+      releaseMic()
+      if (next === 'voice' && detail.session.mode !== 'voice') setVoiceUpgrade(true)
+      else setAnswerMode(next)
+    } catch (value) { setError(value as Error) } finally { setBusy(false) }
+  }
+  const enableVoice = async () => {
+    setBusy(true); setError(undefined)
+    try {
+      await apiRequest('/api/participant/consent', { method: 'POST', body: { version: detail.consent_version, mode: 'voice', processing: true, permanent: true } })
+      await reload(); setAnswerMode('voice'); setVoiceUpgrade(false)
+    } catch (value) { setError(value as Error) } finally { setBusy(false) }
+  }
+  const restartUnfinished = async () => {
+    if (!unfinished || busy || recording || !window.confirm('这一轮录音尚未完整提交。重新回答将放弃本设备暂存的这一轮录音；已正式保存的录音和文字不受影响。确定重新回答吗？')) return
+    setBusy(true); setError(undefined)
+    try {
+      coordinator.current?.stop(); releaseMic()
+      await control('rerecord', { turn_id: unfinished.id })
+      for (const chunk of await indexedChunkStorage.list(unfinished.id)) await indexedChunkStorage.remove(unfinished.id, chunk.seq)
+    } catch (value) { setError(value as Error) } finally { setBusy(false) }
+  }
   const resumeUpload = async () => {
-    if (!recoverable) return
+    if (!unfinished) return
     setBusy(true); setError(undefined)
     try {
       if (detail.session.status === 'paused') await control('resume')
       const resumed = new RecordingCoordinator({ consented: true, storage: indexedChunkStorage, upload })
-      const chunks = await resumed.resume(recoverable.id)
+      const chunks = await resumed.resume(unfinished.id)
       if (!chunks.length) throw new Error('没有找到可恢复的录音块，请重新回答')
-      await apiRequest(`/api/participant/turns/${recoverable.id}/finalize`, { method: 'POST', body: { chunks } })
+      await apiRequest(`/api/participant/turns/${unfinished.id}/finalize`, { method: 'POST', body: { chunks } })
       await resumed.complete()
-      setRecoverable(undefined); await reload()
+      await reload()
     } catch (value) { setError(value as Error) } finally { setBusy(false) }
   }
   const finish = async (withdraw = false) => {
@@ -227,6 +265,13 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     } catch (value) { setError(value as Error) }
   }
   const retry = async (job: Job, accept: boolean) => { await control('retry', { job_id: job.id, accept_possible_charge: accept }) }
+  const pauseInterview = async () => {
+    setBusy(true)
+    try {
+      coordinator.current?.stop(); releaseMic(); setRecording(false)
+      await control('pause', { reason: 'user' })
+    } catch (value) { setError(value as Error) } finally { setBusy(false) }
+  }
   const paused = detail.session.status === 'paused'
   const rerecord = async () => {
     if (!confirming) return
@@ -247,10 +292,42 @@ function Interview({ detail, micStream, requestMic, releaseMic, syncIssue, reloa
     {manualTurnId && <section className="answer-card"><h2>改为手动录入</h2><p>识别失败后，原始录音仍保留。你可以输入并确认本轮内容；这不会重新调用语音识别。上次请求的未知费用仍保留记录。</p><textarea className="transcript-editor" aria-label="手动录入本轮回答" rows={5} value={manualText} onChange={event => setManualText(event.target.value)} /><button className="button primary" disabled={busy || !manualText.trim()} onClick={confirmManual}>确认手动文字</button></section>}
     <div className="interview-meta"><div><span className="live-dot" />{paused ? '访谈已暂停' : '访谈进行中'}</div><div>{duration(detail.session.active_seconds)} <small>/ {duration(targetSeconds)}</small></div></div>
     <div className="time-progress"><span style={{ width: `${Math.min(100, detail.session.active_seconds / targetSeconds * 100)}%` }} /></div>
-    {error && <ErrorPanel error={error} retry={reload} />}{warning && <div className="warning-banner">{warning}</div>}{timeBoundary.level !== 'normal' && <div className={`time-boundary ${timeBoundary.level}`}><div><strong>{timeBoundary.level === 'limit' ? '访谈时间已到上限' : timeBoundary.level === 'warning' ? '请开始收尾' : '目标时长已到'}</strong><p>{timeBoundary.message}</p></div>{timeBoundary.canExtend && <button className="button secondary" onClick={() => control('extend')}>延长 10 分钟</button>}</div>}{recoverable && <div className="recovery-banner"><div><strong>发现尚未完成的录音上传</strong><p>录音块仍保存在这台设备，可按原顺序继续上传。若容器因异常中断无法解码，服务端会明确提示重新录音。</p></div><button className="button secondary" onClick={resumeUpload} disabled={busy}>恢复上传</button></div>}{currentJob && <JobNotice job={currentJob} onRetry={(accept) => retry(currentJob, accept)} />}
+    {error && <ErrorPanel error={error} retry={reload} />}{warning && <div className="warning-banner">{warning}</div>}{timeBoundary.level !== 'normal' && <div className={`time-boundary ${timeBoundary.level}`}><div><strong>{timeBoundary.level === 'limit' ? '访谈时间已到上限' : timeBoundary.level === 'warning' ? '请开始收尾' : '目标时长已到'}</strong><p>{timeBoundary.message}</p></div>{timeBoundary.canExtend && <button className="button secondary" onClick={() => control('extend')}>延长 10 分钟</button>}</div>}{unfinished && !recording && !busy && <div className="recovery-banner"><div><strong>这一轮录音尚未完成</strong><p>请先恢复上传，或确认后重新回答。已有的正式录音和文字继续保存。</p></div><div className="button-row"><button className="button secondary" onClick={resumeUpload}>恢复上传</button><button className="button ghost" onClick={restartUnfinished}>重新回答这一轮</button></div></div>}{currentJob && <JobNotice job={currentJob} onRetry={(accept) => retry(currentJob, accept)} />}
     <section className="question-card"><div className="question-label"><span>AI 当前问题</span>{latestQuestion?.action && <small>{actionLabel[latestQuestion.action] ?? latestQuestion.action}</small>}</div><h1>{latestQuestion?.text || '准备好后，我们会从你的实际经历开始。'}</h1>{latestQuestion?.audio_asset_id && latestQuestion.audio_status === 'available' && audioFailedFor !== latestQuestion.id && <div className="audio-controls"><audio ref={audio} src={`/api/media/${latestQuestion.audio_asset_id}`} onError={() => { setPlaying(false); setAudioFailedFor(latestQuestion.id); setWarning('问题音频读取失败，请根据屏幕上的文字继续。') }} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); void control('playback_done', { turn_id: latestQuestion.id, played_complete: true }) }} /><button className="button secondary" onClick={() => audio.current?.play().catch(() => setWarning('音频无法播放，请根据屏幕上的问题文字继续。'))}>{playing ? '正在播放…' : latestQuestion.played_complete ? '↻ 再听一次' : '▶ 播放问题'}</button>{playing && <button className="text-button" onClick={stopPlayback}>停止播放并回答</button>}</div>}</section>
-    {paused ? <section className="answer-card centered"><div className="device-icon small">Ⅱ</div><h2>已暂停</h2><p>{pauseLabel[detail.session.pause_reason ?? ''] ?? detail.session.pause_reason ?? '你的内容已保存。准备好后可以继续。'}</p><button className="button primary" onClick={() => control('resume')}>继续访谈</button></section> : confirming ? <section className="answer-card"><div className="answer-heading"><div><span className="step">✓</span><div><h2>确认这一轮文字</h2><p>请修正识别错误。确认后才会生成下一问。</p></div></div><StatusBadge status="confirming" /></div><textarea className="transcript-editor" rows={7} value={text} onChange={e => setText(e.target.value)} /><div className="button-row end"><button className="button ghost" onClick={rerecord}>重新回答</button><button className="button primary" onClick={confirm} disabled={busy || !text.trim()}>{busy ? '正在保存…' : '确认并继续'}</button></div></section> : <section className="answer-card"><div className="answer-heading"><div><span className="step">↳</span><div><h2>{timeBoundary.blockNewAnswer ? (timeBoundary.canExtend ? '请选择结束或延长' : '请结束访谈') : processing || !latestQuestion ? '正在准备下一步' : '轮到你回答'}</h2><p>{timeBoundary.blockNewAnswer ? '可以提交已经开始的回答，但不能再开始新一轮。' : processing || !latestQuestion ? '页面会自动同步处理结果，请不要重复提交。' : detail.session.mode === 'voice' ? '点击开始后录音；说完再提交。AI 播放期间不会录音。' : '写下你的回答，之后仍可确认或修改。'}</p></div></div></div>{detail.session.mode === 'voice' ? <div className="record-zone">{recording ? <><div className="recording-orb"><span /><strong>{duration(recordSeconds)}</strong><small>正在录音</small></div><button className="button danger wide" onClick={finishRecording}>说完了，安全提交</button></> : <button className="record-button" onClick={startRecording} disabled={busy || playing || processing || !latestQuestion || timeBoundary.blockNewAnswer}><span>●</span><strong>{timeBoundary.blockNewAnswer ? (timeBoundary.canExtend ? '请先选择延长' : '已到 90 分钟上限') : processing || !latestQuestion ? '请稍候' : playing ? '先停止问题播放' : busy ? '正在保存…' : '开始回答'}</strong><small>{playing ? '使用上方“停止播放并回答”' : '点击后才开始录音'}</small></button>}</div> : <form onSubmit={submitText}><textarea className="transcript-editor" rows={7} value={text} onChange={e => setText(e.target.value)} placeholder="写下你的回答…" disabled={Boolean(processing || !latestQuestion || timeBoundary.blockNewAnswer)} /><button className="button primary wide" disabled={busy || processing || !latestQuestion || !text.trim() || timeBoundary.blockNewAnswer}>{busy ? '正在提交…' : '提交回答'}</button></form>}</section>}
-    <div className="interview-actions"><button className="button ghost" onClick={() => control('pause', { reason: 'user' })}>暂停</button><button className="button ghost" onClick={() => control('skip')}>跳过这题</button><button className="text-button danger-text" disabled={busy} onClick={() => finish(false)}>结束并保留</button><button className="text-button danger-text" onClick={() => finish(true)}>撤回并删除</button></div>
+    <section className="answer-mode-panel" aria-label="回答方式">
+      <div className="mode-switch" role="group" aria-label="选择回答方式">
+        <button className={answerMode === 'voice' ? 'active' : ''} aria-pressed={answerMode === 'voice'} disabled={modeBlocked || voiceUpgrade} onClick={() => chooseAnswerMode('voice')}>语音回答</button>
+        <button className={answerMode === 'text' ? 'active' : ''} aria-pressed={answerMode === 'text'} disabled={modeBlocked || voiceUpgrade} onClick={() => chooseAnswerMode('text')}>文字回答</button>
+      </div>
+      <p className="fine-print">切换会保留当前文字草稿，已提交内容继续永久保存。</p>
+      {modeBlocked && !voiceUpgrade && <p className="fine-print" role="status">{recording ? '请先停止并提交本轮录音。' : unfinished ? '请先恢复上传或选择重新回答。' : confirming ? '请先确认这一轮文字。' : '当前内容正在处理，请稍候。'}</p>}
+      {answerMode === 'voice' && answerDraft.text && <p className="fine-print">你的文字草稿仍保留，切回文字回答可继续编辑。</p>}
+    </section>
+    {voiceUpgrade ? <section className="voice-upgrade">
+      <ConsentGate key={detail.consent_version} mode="voice" providers={detail.providers} study={detail.study} mock={detail.mode === 'mock'} purpose="voice_upgrade" onSubmit={enableVoice} />
+      <button className="button ghost wide" disabled={busy} onClick={() => setVoiceUpgrade(false)}>继续使用文字回答</button>
+    </section> : paused ? <section className="answer-card centered">
+      <div className="device-icon small">Ⅱ</div><h2>已暂停</h2><p>{pauseLabel[detail.session.pause_reason ?? ''] ?? detail.session.pause_reason ?? '你的内容已保存。准备好后可以继续。'}</p><button className="button primary" disabled={busy} onClick={() => control('resume')}>继续访谈</button>
+    </section> : confirming ? <section className="answer-card">
+      <div className="answer-heading"><div><span className="step">✓</span><div><h2>确认这一轮文字</h2><p>请修正识别错误。确认后才会生成下一问。</p></div></div><StatusBadge status="confirming" /></div>
+      <textarea className="transcript-editor" aria-label="确认这一轮文字" rows={7} value={text} onChange={e => setText(e.target.value)} />
+      <div className="button-row end"><button className="button ghost" onClick={rerecord} disabled={busy}>重新回答</button><button className="button primary" onClick={confirm} disabled={busy || !text.trim()}>{busy ? '正在保存…' : '确认并继续'}</button></div>
+    </section> : <section className="answer-card">
+      <div className="answer-heading"><div><span className="step">↳</span><div>
+        <h2>{timeBoundary.blockNewAnswer ? (timeBoundary.canExtend ? '请选择结束或延长' : '请结束访谈') : processing || !latestQuestion ? '正在准备下一步' : '轮到你回答'}</h2>
+        <p>{timeBoundary.blockNewAnswer ? '可以提交已经开始的回答，但不能再开始新一轮。' : processing || !latestQuestion ? '页面会自动同步处理结果，请不要重复提交。' : answerMode === 'voice' ? '点击开始后录音；说完再提交。AI 播放期间不会录音。' : '写下你的回答，之后仍可确认或修改。'}</p>
+      </div></div></div>
+      {answerMode === 'voice' ? <div className="record-zone">
+        {recording ? <><div className="recording-orb"><span /><strong>{duration(recordSeconds)}</strong><small>正在录音</small></div><button className="button danger wide" onClick={finishRecording}>说完了，安全提交</button></> :
+          <button className="record-button" onClick={startRecording} disabled={modeBlocked || playing || !latestQuestion || timeBoundary.blockNewAnswer}><span>●</span><strong>{timeBoundary.blockNewAnswer ? (timeBoundary.canExtend ? '请先选择延长' : '已到 90 分钟上限') : pendingAnswer ? '先处理未完成的回答' : processing || !latestQuestion ? '请稍候' : playing ? '先停止问题播放' : busy ? '正在保存…' : '开始回答'}</strong><small>{playing ? '使用上方“停止播放并回答”' : '点击后才开始录音'}</small></button>}
+      </div> : <form onSubmit={submitText}>
+        {answerDraft.text && answerDraft.questionId !== latestQuestion?.id && <p className="warning-banner">保留了上一问题的文字草稿，提交前请核对当前问题。</p>}
+        <textarea className="transcript-editor" aria-label="文字回答草稿" rows={7} value={answerDraft.text} onChange={e => setAnswerDraft({ text: e.target.value, questionId: answerDraft.text ? answerDraft.questionId : latestQuestion?.id ?? '' })} placeholder="写下你的回答…" disabled={modeBlocked || !latestQuestion || timeBoundary.blockNewAnswer} />
+        <button className="button primary wide" disabled={modeBlocked || !latestQuestion || !answerDraft.text.trim() || timeBoundary.blockNewAnswer}>{busy ? '正在提交…' : '提交回答'}</button>
+      </form>}
+    </section>}
+
+    <div className="interview-actions"><button className="button ghost" disabled={busy} onClick={pauseInterview}>暂停</button><button className="button ghost" disabled={busy || recording || Boolean(unfinished)} onClick={() => control('skip')}>跳过这题</button><button className="text-button danger-text" disabled={busy} onClick={() => finish(false)}>结束并保留</button><button className="text-button danger-text" onClick={() => finish(true)}>撤回并删除</button></div>
   </div>
 }
 
