@@ -1,5 +1,6 @@
 import argparse
 import getpass
+import ipaddress
 import json
 import sys
 from pathlib import Path
@@ -13,6 +14,13 @@ from app.models import Owner
 from app.security import HASHER
 
 
+def proxy_address(value):
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("只接受明确的代理 IP 地址，不能使用通配符") from exc
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="ProbeFlow 中文访谈工具")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -20,6 +28,13 @@ def main(argv=None):
     start = sub.add_parser("start", help="启动应用")
     start.add_argument("--host", default="127.0.0.1")
     start.add_argument("--port", type=int, default=8765)
+    start.add_argument(
+        "--trusted-proxy",
+        type=proxy_address,
+        action="append",
+        default=[],
+        help="信任该代理 IP 的转发头，可重复指定；默认不信任",
+    )
     sub.add_parser("check", help="检查配置与运行环境")
     sub.add_parser("backup", help="一致性备份并核验")
     restore = sub.add_parser("restore", help="向独立空目录恢复，过滤已删除资料")
@@ -39,7 +54,8 @@ def main(argv=None):
             port=args.port,
             workers=1,
             access_log=False,
-            proxy_headers=False,
+            proxy_headers=bool(args.trusted_proxy),
+            forwarded_allow_ips=",".join(args.trusted_proxy),
         )
         return 0
     database = Database(settings)

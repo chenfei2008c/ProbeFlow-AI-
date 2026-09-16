@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.security import digest
 from app.provenance import archive_mode, origin_modes
+from app.reporting import topic_coverage
 
 TERMINAL = {"completed", "withdrawn", "deleted", "expired"}
 DELETED = {"withdrawn", "deleted"}
@@ -198,6 +199,7 @@ def turn_view(db, turn):
         "status": turn.status,
         "input_mode": turn.input_mode,
         "text": current.text if current else "",
+        "text_source": current.source if current else None,
         "revision_id": turn.revision_id,
         "provenance": current.provenance if current else {},
         "revisions": [
@@ -239,11 +241,12 @@ def job_view(job):
 
 def report_view(db, report):
     citations = list(db.scalars(select(Citation).where(Citation.report_id == report.id)))
+    session = db.get(InterviewSession, report.session_id)
     return {
         "id": report.id,
         "version": report.version,
         "status": report.status,
-        "source_updated": report.source_updated,
+        "source_updated": report.source_updated or session.revision != report.source_revision,
         "body": report.body,
         "markdown": report.markdown,
         "provenance": report.provenance,
@@ -290,6 +293,7 @@ def detail(db, session, settings, admin=True):
         result.update(
             reports=[report_view(db, r) for r in reports],
             memory=memory.content if memory else {"topics": [], "unresolved": []},
+            coverage=topic_coverage(config, result["turns"], memory.content if memory else {}),
         )
     provenances = [r["provenance"] for t in result["turns"] for r in t["revisions"]]
     provenances.extend(t["audio_provenance"] for t in result["turns"] if t["audio_provenance"] is not None)

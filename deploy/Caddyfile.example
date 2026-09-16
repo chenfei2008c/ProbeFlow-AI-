@@ -1,0 +1,6 @@
+# Replace this example name with your controlled public DNS name.
+# DATA_DIR and BACKUP_DIR must never be served as static directories.
+interview.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8765
+}

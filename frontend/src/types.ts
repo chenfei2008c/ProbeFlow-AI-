@@ -1,6 +1,8 @@
 export type AppMode = 'mock' | 'live'
 export type ArchiveMode = AppMode | 'mixed' | 'unknown'
 export interface Provenance { mode?: ArchiveMode; source_modes?: ArchiveMode[]; calls?: Array<{ mode: AppMode | 'unknown'; role?: string; provider?: string; model?: string; region?: string }> }
+export type ReportSection = 'role' | 'event' | 'statement' | 'explanation' | 'hypothesis' | 'suggestion'
+export interface Coverage { topics: Array<{ id: string; title: string; status: 'not_started' | 'awaiting_answer' | 'partial' | 'covered' | 'skipped'; confirmed_turn_ids: string[]; unconfirmed_count: number; reasons: string[] }>; unresolved: Array<{ text: string; turn_ids: string[] }> }
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'external_status_unknown' | 'cancelled'
 
 export interface ProviderInfo { provider: string; model: string; region?: string; endpoint_host?: string; available?: boolean | null; configured?: boolean; name?: string }
@@ -24,9 +26,9 @@ export interface Session { id: string; study_id: string; status: string; partici
 export interface Revision { provenance?: Provenance; id: string; text: string; source: string; created_at: string }
 export interface Turn { provenance?: Provenance; audio_provenance?: Provenance | null; id: string; seq: number; role: 'assistant' | 'participant'; status: string; input_mode: 'text' | 'voice'; text: string; revision_id?: string; revisions: Revision[]; audio_asset_id?: string; audio_status?: string; action?: string; topic_id?: string; created_at: string; confirmed: boolean; played_complete?: boolean }
 export interface Citation { turn_id: string; revision_id: string; start: number; end: number; quote: string }
-export interface Report { archive_mode?: ArchiveMode; provenance?: Provenance; id: string; version: number; status: string; source_updated: boolean; body: { summary?: string; findings?: Array<{ type: string; text: string; citations: Citation[] }>; limitations?: string[]; unanswered?: string[] }; markdown: string; citations: Citation[]; created_at: string }
+export interface Report { archive_mode?: ArchiveMode; provenance?: Provenance; id: string; version: number; status: string; source_updated: boolean; body: { schema_version?: number; background?: { title: string; objective: string; study_version_id?: string }; coverage?: Coverage; summary?: string; findings?: Array<{ section?: ReportSection; type: string; text: string; citations: Citation[] }>; limitations?: string[]; unanswered?: string[] }; markdown: string; citations: Citation[]; created_at: string }
 export interface Job { id: string; kind: string; status: JobStatus; error_code?: string; error_message?: string; result?: unknown; created_at: string }
-export interface Detail { archive_mode?: ArchiveMode; session: Session; study: StudyConfig; turns: Turn[]; reports?: Report[]; jobs: Job[]; memory?: { topics: unknown[]; unresolved: unknown[] }; mode: AppMode; consent_version: string; providers: ProviderMap }
+export interface Detail { coverage?: Coverage; archive_mode?: ArchiveMode; session: Session; study: StudyConfig; turns: Turn[]; reports?: Report[]; jobs: Job[]; memory?: { topics: unknown[]; unresolved: unknown[] }; mode: AppMode; consent_version: string; providers: ProviderMap }
 export interface ApiEvent { seq: number; type: string; payload: unknown; created_at: string }
 export interface Diagnostics { mode: AppMode; providers: Record<string, unknown>; ffmpeg_available: boolean; recent_errors: Array<Record<string, unknown>>; status?: string; primary_bytes?: number; formal_bytes?: number; temp_bytes?: number; backup_bytes?: number; free_bytes?: number; minimum_free_bytes?: number; deletion_tombstones?: number | null; last_backup?: Record<string, unknown> | string | null; storage?: Record<string, unknown>; backup?: Record<string, unknown> }
 export interface Usage { month_spent_cny: number; month_reserved_cny: number; monthly_limit_cny: number; entries: Array<Record<string, unknown>> }

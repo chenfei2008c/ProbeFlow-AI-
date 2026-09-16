@@ -411,3 +411,12 @@ input:focus, textarea:focus, select:focus { border-color: #5f9085; box-shadow: 0
 .invite-list { display: grid; gap: 12px; }
 .invite-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px 0; border-bottom: 1px solid var(--line); }
 .invite-row p { color: var(--muted); margin: 6px 0 0; font-size: 13px; }
+
+.topic-coverage { display: grid; gap: 12px; }
+.coverage-item { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.coverage-item .section-heading { margin-bottom: 4px; flex-wrap: wrap; gap: 6px; }
+.coverage-item p { font-size: 13px; margin: 5px 0; }
+.coverage-status { color: var(--muted); font-size: 12px; }
+.coverage-status.covered { color: var(--teal); }
+.coverage-status.skipped { color: #88530b; }
+.report-limitations { background: #fff5df; border: 1px solid #e8d3a5; border-radius: 10px; padding: 14px; }

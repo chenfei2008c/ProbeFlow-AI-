@@ -175,6 +175,7 @@ def test_report_validates_exact_confirmed_revision_and_character_range():
         "findings": [
             {
                 "type": "statement",
+                "section": "statement",
                 "text": "受访者称补件分两次发生。",
                 "citations": [
                     {"turn_id": "U1", "revision_id": "U1-r1", "start": 0, "end": 7, "quote": "第一轮要了资料"}
@@ -225,6 +226,34 @@ def test_report_rejects_missing_citations_and_unknown_finding_type_and_escapes_h
     rendered = render_report(html_report, "live")
     assert "<script>" not in rendered
     assert "&lt;script&gt;" in rendered
+
+
+def test_report_sections_reject_claiming_explanations_as_facts_or_citing_questions():
+    turns = [
+        participant(text="我认为需要核查。"),
+        {"id": "Q1", "role": "assistant", "text": "你负责什么？", "revision_id": "QR1", "confirmed": True},
+    ]
+    report = mock_report(STUDY, turns)
+    for updates in (
+        {"section": "explanation", "type": "statement"},
+        {"section": "role", "type": "hypothesis"},
+        {"section": []},
+        {"type": []},
+    ):
+        with pytest.raises(ReportError):
+            validate_report({**report, "findings": [{**report["findings"][0], **updates}]}, turns)
+    for citation in (
+        {"turn_id": "Q1", "revision_id": "QR1", "start": 0, "end": 6, "quote": "你负责什么？"},
+        {"turn_id": [], "revision_id": "QR1", "start": 0, "end": 1, "quote": "你"},
+    ):
+        with pytest.raises(ReportError):
+            validate_report(
+                {**report, "findings": [{**report["findings"][0], "citations": [citation]}]}, turns
+            )
+    payload = json.loads(report_messages(STUDY, turns)[-1]["content"])
+    assert (
+        payload["turns"][-1]["role"] == "assistant"
+    )  # Context is read, but never cited as participant evidence.
 
 
 def test_mock_dispatch_is_deterministic_and_rejects_unknown_task():

@@ -403,6 +403,10 @@ class Worker:
                     "topic_id",
                     "input_mode",
                     "provenance",
+                    "status",
+                    "audio_asset_id",
+                    "audio_status",
+                    "text_source",
                 }
             }
             for row in turns
@@ -420,7 +424,7 @@ class Worker:
             job = self._current(db, job_id, token)
             session = db.get(InterviewSession, job.session_id)
             study, turns, memory = self._snapshot(db, session)
-            if job.payload.get("skipped"):
+            if job.payload.get("skipped") and not job.payload.get("skip_recorded"):
                 memory = {
                     **memory,
                     "refusals": [
@@ -494,9 +498,23 @@ class Worker:
                     for item in memory.get("topics", [])
                     if isinstance(item, dict) and "id" in item
                 }
-                topic_id = decision.get("topic_id")
+                by_id = {t["id"]: t for t in turns}
+                evidence = decision["coverage_update"]["evidence_turn_ids"]
+                evidence_topics = {
+                    by_id[tid].get("topic_id")
+                    for tid in evidence
+                    if by_id[tid]["role"] == "participant" and by_id[tid]["confirmed"]
+                }
+                topic_id = (
+                    next(iter(evidence_topics)) if len(evidence_topics) == 1 else decision.get("topic_id")
+                )
                 if topic_id:
-                    topics[topic_id] = {"id": topic_id, **decision["coverage_update"]}
+                    topics[topic_id] = {
+                        "id": topic_id,
+                        **decision["coverage_update"],
+                        "evidence_revisions": {tid: by_id[tid]["revision_id"] for tid in evidence},
+                        "through_seq": turn.seq - 1,
+                    }
                 refusals = list(memory.get("refusals", []))
                 if decision.get("boundary") == "refusal":
                     refused_topic = next(
@@ -718,48 +736,163 @@ class Worker:
                     enqueue(db, "decide", {"answer_id": turn.id}, sid, f"answer:{turn.id}")
             self._finish(db, job, {"turn_id": turn.id})
 
-    async def _report(self, job_id, token):
-        from app.interview import report_messages, validate_report, render_report
+    async def _checked_report(self, job_id, token, key, messages, sources, allowed_citations=None):
+        from app.interview import ReportError, validate_report
+
+        def checked(raw):
+            report = validate_report(raw, sources)
+            if allowed_citations is not None:
+                for finding in report["findings"]:
+                    for citation in finding["citations"]:
+                        if json.dumps(citation, sort_keys=True, ensure_ascii=False) not in allowed_citations:
+                            raise ReportError("merge citation was not present in extracted evidence")
+            return report
+
+        if sum(len(message["content"]) for message in messages) > 64000:
+            raise AppError(
+                "REPORT_CONTEXT_TOO_LARGE",
+                "报告汇总材料超过当前处理上限，未截断来源；档案已保留，可导出后人工整理。",
+                409,
+            )
+        result = await self._text(job_id, token, key, "report", messages, max_tokens=4096)
+        try:
+            return checked(result.text)
+        except ReportError as exc:
+            payload = json.loads(messages[-1]["content"])
+            payload.update(
+                repair=f"只修复结构和引文错误：{exc}；仍须使用给定的来源与修订，不得补造引文。",
+                previous_output=result.text,
+            )
+            repaired = await self._text(
+                job_id,
+                token,
+                key + "-repair",
+                "report",
+                [messages[0], {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}],
+                max_tokens=4096,
+            )
+            try:
+                return checked(repaired.text)
+            except ReportError as error:
+                with self.database.transaction() as db:
+                    job = self._current(db, job_id, token)
+                    job.payload = {**job.payload, "_report_invalid_step": key}
+                raise AppError(
+                    "REPORT_INVALID",
+                    "报告经过一次修复仍未通过结构或引用校验，未发布；原始档案保留，可人工重试。",
+                    409,
+                ) from error
+
+    def _report_input(self, job_id, token):
+        from app.reporting import observed_report_context
 
         with self.database.read() as db:
             job = self._current(db, job_id, token)
+            if job.payload.get("_report_snapshot"):
+                return job.payload["_report_snapshot"]
+            if (job.result or {}).get("_checkpoints"):
+                raise AppError(
+                    "REPORT_SOURCE_SNAPSHOT_MISSING",
+                    "旧报告任务缺少来源快照，请创建新的报告任务；已有档案保留。",
+                    409,
+                )
             session = db.get(InterviewSession, job.session_id)
-            study, turns, _ = self._snapshot(db, session)
+            study, turns, memory = self._snapshot(db, session)
             source_revision = session.revision
-            confirmed = [t for t in turns if t["confirmed"]]
+            audio_issues = []
+            for turn in turns:
+                if turn["audio_asset_id"]:
+                    asset = db.get(Asset, turn["audio_asset_id"])
+                    try:
+                        path = self.storage().safe_path(asset.path) if asset else None
+                        if path is None:
+                            reason = "档案索引缺失"
+                        elif not path.is_file():
+                            reason = "档案文件缺失"
+                        else:
+                            with path.open("rb") as raw:
+                                digest = hashlib.file_digest(raw, "sha256").hexdigest()
+                            reason = (
+                                "档案哈希不匹配，文件已损坏"
+                                if digest != asset.sha256
+                                else "原始文件已保存，但格式或时长校验失败"
+                                if asset.duration_seconds is None
+                                else None
+                            )
+                    except (OSError, AppError):
+                        reason = "档案读取失败"
+                    if reason:
+                        audio_issues.append(f"第 {turn['seq']} 轮音频：{reason}；仅提供可用文字定位。")
+                elif turn["role"] == "participant" and turn["input_mode"] == "voice":
+                    audio_issues.append(f"第 {turn['seq']} 轮录音尚未形成完整档案，不能回放。")
+            observed = observed_report_context(study, turns, memory, session, audio_issues)
+        snapshot = {"study": study, "turns": turns, "observed": observed, "source_revision": source_revision}
+        with self.database.transaction() as db:
+            job = self._current(db, job_id, token)
+            job.payload = {**job.payload, "_report_snapshot": snapshot}
+        return snapshot
+
+    async def _report(self, job_id, token):
+        from app.interview import report_messages, report_merge_messages, validate_report, render_report
+
+        snapshot = self._report_input(job_id, token)
+        study, turns, observed, source_revision = (
+            snapshot[key] for key in ("study", "turns", "observed", "source_revision")
+        )
+        confirmed = [t for t in turns if t["confirmed"]]
         chunks, current, size = [], [], 0
+        last_question = None
         for turn in confirmed:
             length = len(json.dumps(turn, ensure_ascii=False))
             if current and size + length > 24000:
                 chunks.append(current)
                 current, size = [], 0
+                if turn["role"] == "participant" and last_question:
+                    current = [last_question]
+                    size = len(json.dumps(last_question, ensure_ascii=False))
             current.append(turn)
             size += length
+            if turn["role"] == "assistant":
+                last_question = turn
         chunks.append(current)
         reports = []
         for index, chunk in enumerate(chunks):
-            result = await self._text(
-                job_id, token, f"report-{index}", "report", report_messages(study, chunk), max_tokens=4096
+            reports.append(
+                await self._checked_report(
+                    job_id, token, f"report-{index}", report_messages(study, chunk), chunk
+                )
             )
-            reports.append(validate_report(result.text, confirmed))
-        report = (
-            reports[0]
-            if len(reports) == 1
-            else {
-                "summary": "\n\n".join(r.get("summary", "") for r in reports),
-                "findings": [f for r in reports for f in r.get("findings", [])],
-                "limitations": list(dict.fromkeys(x for r in reports for x in r.get("limitations", []))),
-                "unanswered": list(dict.fromkeys(x for r in reports for x in r.get("unanswered", []))),
-            }
-        )
-        report.setdefault("limitations", [])
-        if any(not t["confirmed"] for t in turns):
-            report["limitations"].append("存在尚未确认的回答，未作为报告结论来源。")
-        if not study["confirm_transcript"]:
-            report["limitations"].append("机器转写，未逐轮确认。")
-        if not any(t["input_mode"] == "voice" for t in turns):
-            report["limitations"].append("本场为文字输入，无受访者录音。")
+        level = 0
+        while len(reports) > 1:
+            merged = []
+            for index in range(0, len(reports), 2):
+                parts = reports[index : index + 2]
+                if len(parts) == 1:
+                    merged.append(parts[0])
+                    continue
+                allowed = {
+                    json.dumps(c, sort_keys=True, ensure_ascii=False)
+                    for part in parts
+                    for f in part["findings"]
+                    for c in f["citations"]
+                }
+                merged.append(
+                    await self._checked_report(
+                        job_id,
+                        token,
+                        f"report-merge-{level}-{index // 2}",
+                        report_merge_messages(study, parts),
+                        confirmed,
+                        allowed,
+                    )
+                )
+            reports = merged
+            level += 1
+        report = reports[0]
+        report["limitations"] = list(dict.fromkeys([*observed["limitations"], *report["limitations"]]))
+        report["unanswered"] = list(dict.fromkeys([*observed["unanswered"], *report["unanswered"]]))
         report = validate_report(report, confirmed)
+        report.update(background=observed["background"], coverage=observed["coverage"], schema_version=2)
         with self.database.transaction() as db:
             job = self._current(db, job_id, token)
             provenance = job_provenance(job, "report", [t["provenance"] for t in turns])

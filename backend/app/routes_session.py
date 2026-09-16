@@ -36,6 +36,7 @@ from app.models import (
     Invite,
     Job,
     Ledger,
+    Memory,
     Report,
     Study,
     StudyVersion,
@@ -319,6 +320,7 @@ def register_session_routes(app, database, settings):
                         time.time(),
                         "participant_ended",
                     )
+                    session.revision += 1
                     db.execute(
                         update(Job)
                         .where(
@@ -355,10 +357,37 @@ def register_session_routes(app, database, settings):
                     )
                     if latest and latest.role == "participant" and not latest.confirmed:
                         latest.status = "superseded"
+                    memory = db.scalar(
+                        select(Memory)
+                        .where(Memory.session_id == session.id)
+                        .order_by(Memory.version.desc())
+                        .limit(1)
+                    )
+                    content = dict(memory.content) if memory else {}
+                    refusal = {
+                        "topic_id": latest.topic_id if latest else None,
+                        "reason": "受访者主动跳过",
+                        "turn_ids": [latest.id] if latest else [],
+                    }
+                    content["refusals"] = [*content.get("refusals", []), refusal]
+                    session.memory_version = (memory.version if memory else 0) + 1
+                    session.revision += 1
+                    db.add(
+                        Memory(
+                            session_id=session.id,
+                            version=session.memory_version,
+                            through_seq=memory.through_seq if memory else 0,
+                            content=content,
+                        )
+                    )
                     job = enqueue(
                         db,
                         "decide",
-                        {"skipped": True, "topic_id": latest.topic_id if latest else None},
+                        {
+                            "skipped": True,
+                            "skip_recorded": True,
+                            "topic_id": latest.topic_id if latest else None,
+                        },
                         session.id,
                     )
                     result["job_id"] = job.id
@@ -374,6 +403,15 @@ def register_session_routes(app, database, settings):
                         raise AppError(
                             "CHARGE_CONFIRMATION_REQUIRED", "上次请求可能已计费，重试需要明确确认", 409
                         )
+                    if job.kind == "report" and job.error_code == "REPORT_INVALID":
+                        payload = dict(job.payload)
+                        invalid_step = payload.pop("_report_invalid_step", None)
+                        if invalid_step:
+                            checkpoints = dict((job.result or {}).get("_checkpoints", {}))
+                            checkpoints.pop(invalid_step, None)
+                            checkpoints.pop(invalid_step + "-repair", None)
+                            job.result = {**(job.result or {}), "_checkpoints": checkpoints}
+                            job.payload = payload
                     job.status, job.error_code, job.error_message, job.call_started = (
                         "queued",
                         None,

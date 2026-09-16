@@ -40,7 +40,7 @@ Turn：`{id,seq,role:"assistant"|"participant",status,input_mode,text,revision_i
 
 `Usage` dataclass: input_tokens/output_tokens/cached_tokens/reasoning_tokens:int=0, audio_seconds:float=0, characters:int=0, request_id:str|None=None, source="actual"|"estimated"|"unknown"。`ProviderError(code,message,external_status_unknown=False,retryable=False)` 禁止携带密钥／敏感请求。
 
-mock 文本读取末条 user JSON 的 task：outline/decide/report；由 `app.interview` 生成确定性结果，providers 可延迟导入 `mock_response(payload)`；mock ASR 文本固定标为模拟，mock TTS 只返回可播放提示音，严禁声称中文合成通过。
+mock 文本读取末条 user JSON 的 task：outline/decide/report/report_merge；由 `app.interview` 生成确定性结果，providers 可延迟导入 `mock_response(payload)`；mock ASR 文本固定标为模拟，mock TTS 只返回可播放提示音，严禁声称中文合成通过。
 
 ### audio（独立，不导入数据库）
 
@@ -50,7 +50,7 @@ mock 文本读取末条 user JSON 的 task：outline/decide/report；由 `app.in
 
 `build_context(study:dict,turns:list[dict],memory:dict,active_seconds:int)->dict` 保留当前完整回答、全部禁问范围和拒绝事项，限制上下文；`decide_messages(context)->list[dict]`；`validate_decision(raw:str|dict,context:dict)->dict`，非法值抛 `DecisionError`；`fallback_decision(context)->dict`；`mock_response(payload:dict)->dict` 处理 task。
 
-decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/new_evidence/unresolved_items/boundary；有效 ID 来自 context，不要求思维链。context 的 turns 每条有 id,role,text,revision_id,topic_id,action,confirmed。报告输入全部确认来源；`report_messages(study,turns)->list[dict]`；`validate_report(raw,turns)->dict`；`render_report(report,mode)->str`；`mock_report(study,turns)->dict`。报告结构 `{summary,findings:[{type:"statement"|"opinion"|"hypothesis",text,citations:[{turn_id,revision_id,start,end,quote}]}],limitations:[],unanswered:[]}`。引用精确匹配指定版本及字符范围，禁止拼接伪引文；生成报告正文使用纯文本／Markdown，不信任 HTML。
+decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/new_evidence/unresolved_items/boundary；有效 ID 来自 context，不要求思维链。context 的 turns 每条有 id,role,text,revision_id,topic_id,action,confirmed。报告输入全部确认来源及问题上下文；`report_messages(study,turns)->list[dict]`；`report_merge_messages(study,reports)->list[dict]`；`validate_report(raw,turns)->dict`；`render_report(report,mode)->str`；`mock_report(study,turns)->dict`。模型报告结构 `{summary,findings:[{type:"statement"|"opinion"|"hypothesis",section:"role"|"event"|"statement"|"explanation"|"hypothesis"|"suggestion",text,citations:[{turn_id,revision_id,start,end,quote}]}],limitations:[],unanswered:[]}`。角色与事件只能标为受访者陈述，原因解释与建议为意见，假设独立分类。引用只能来自已确认的受访者，精确匹配指定版本及字符范围，禁止引用 AI 问题或拼接伪引文；生成报告正文使用纯文本／Markdown，不信任 HTML。
 
 预算在主程序实施，providers 只返回真实或明确估算用量，不自行重试付费请求。全部外部超时归为状态未知，重试需用户明确确认；schema 最多修复一次并分别记账。
 
@@ -75,3 +75,12 @@ decision 使用规格 action/topic_id/question/basis_turn_ids/coverage_update/ne
 - Turn 返回当前文本 `provenance`、全部 revisions 的 `provenance` 以及可为空的 `audio_provenance`；Report 返回自身 `provenance`。旧数据库缺少这些字段的档案迁移为来源未确认，不补造历史信息。
 - JSON 导出的 `mode` 是档案来源，`runtime_mode` 才是导出时运行环境；来源服务由各条 provenance.calls 记录，不用当前 providers 代替历史供应商。CSV 每个修订带来源标识，Markdown 含总标识及各版本标识。
 - 已完成场次处理配置改变后，既有档案仍可读取、播放及导出，新处理须受访者补充同意。沿用 `/api/participant/consent`，必须保留原输入方式，两项主动勾选；成功只记录新版授权，不重开访谈、不创建下一问、不自动重试旧任务。受访者可通过原凭证或恢复邀请进入结束页查看更新说明。
+
+## 主题覆盖与报告来源
+
+- 管理端 Detail 新增 `coverage:{topics:[{id,title,status,confirmed_turn_ids,unconfirmed_count,reasons}],unresolved:[{text,turn_ids}]}`；受访者响应不含此字段。status 为 not_started/awaiting_answer/partial/covered/skipped。covered 必须有对应主题的确认回答、匹配当前修订的证据和覆盖至当前回答的评估，页面注明这是模型判断；跳过／拒答独立展示。
+- Turn 新增 `text_source`，描述当前文本修订来源。新报告 body 在模型结构之外由程序加入 `schema_version:2`、`background:{title,objective,study_version_id}`、`coverage`；旧报告仍可读取，未保存的快照不补造。
+- 报告首次处理将研究、轮次、来源修订号及观察局限冻结到任务内部；普通响应不暴露该内部快照。重试保持相同输入并复用已完成检查点，后续修改使报告 `source_updated` 为 true。结束或跳过也更新会话修订号。
+- 长报告每段提取后进行分层汇总；引用既须匹配原文，又须完整复用前一级已有引文。无效结果仅允许一次结构修复，修复仍失败返回 REPORT_INVALID，不写入正式报告。汇总材料超过当前 64,000 字符保护上限返回 REPORT_CONTEXT_TOO_LARGE，档案保留且不截断；旧任务缺少冻结来源时返回 REPORT_SOURCE_SNAPSHOT_MISSING，应创建新报告。
+- 人工重试 REPORT_INVALID 时，只移除失败步骤及其修复结果的内部检查点；成功步骤与来源快照保留，既有费用账本不改写，重新请求继续独立记账。未知计费重试仍须明确确认。
+- 研究局限由程序加入提前结束、未确认文本、文字输入、音频文件缺失／哈希损坏等实际观察，位于报告前部。永久保存不存在正常的“录音到期”分支。每一类发现缺乏依据时明确显示尚缺乏依据。

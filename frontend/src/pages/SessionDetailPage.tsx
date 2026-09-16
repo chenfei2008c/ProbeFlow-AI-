@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ApiError, apiRequest } from '../lib/api'
 import { dateTime, duration, money, actionLabel } from '../lib/format'
-import { Citation, Detail, Job, Report, Turn } from '../types'
+import { Citation, Detail, Job, Report, ReportSection, Turn } from '../types'
 import { ArchiveNotice, ErrorPanel, JobNotice, Loading, StatusBadge } from '../components/Common'
 import { useApi } from '../hooks/useApi'
+import { TopicCoverage } from '../components/TopicCoverage'
 
 export function SessionDetailPage() {
   const { id = '' } = useParams()
@@ -39,6 +40,7 @@ export function SessionDetailPage() {
     {actionError && <ErrorPanel error={actionError} />}{job && <JobNotice job={job} />}
     <section className="session-summary"><div><span>场次状态</span><StatusBadge status={detail.session.status} /></div><div><span>有效时长</span><strong>{duration(detail.session.active_seconds)}</strong></div><div><span>本场支出</span><strong>{money(detail.session.spent_cny)}</strong><small>预占 {money(detail.session.reserved_cny)}</small></div><div><span>访谈方式</span><strong>{detail.session.mode === 'voice' ? '语音' : '文字'}</strong></div><div><span>保存策略</span><strong className="teal">永久</strong></div></section>
     <section className="panel"><div className="section-heading"><h2>本场预算</h2><p>当前限额 {money(detail.session.budget_cny)}，追加后由受访者继续访谈。</p></div>{(detail.session.spent_cny + detail.session.reserved_cny) >= detail.session.budget_cny * 0.8 && <p className="warning-banner">本场已使用或预占至少 80% 预算。</p>}<label className="field"><span>新的本场总预算（元）</span><input type="number" min="0.01" step="0.01" value={budget} onChange={event => setBudget(event.target.value)} /></label><button className="button secondary" disabled={!budget || Number(budget) <= 0} onClick={saveBudget}>保存预算</button></section>
+    {detail.coverage && <section className="panel"><div className="section-heading"><div><h2>主题覆盖与边界</h2><p>覆盖程度是整理提示，不能代替研究者判断；跳过和拒答会保留。</p></div></div><TopicCoverage coverage={detail.coverage} onTurn={turnId => document.getElementById(`turn-${turnId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })} /></section>}
     <div className="detail-tabs"><button className="active">逐轮记录</button><button onClick={() => document.getElementById('report')?.scrollIntoView({ behavior: 'smooth' })}>分析报告</button><button onClick={() => document.getElementById('jobs')?.scrollIntoView({ behavior: 'smooth' })}>处理记录</button></div>
     <div className="session-layout"><section className="transcript-panel"><div className="section-heading"><div><h2>逐轮记录</h2><p>{detail.turns.length} 条发言 · 修订历史全部保留</p></div></div><div className="turn-list">{detail.turns.map(turn => <article id={`turn-${turn.id}`} className={`turn ${turn.role}`} key={turn.id}><div className="turn-rail"><span>{String(turn.seq).padStart(2, '0')}</span><i /></div><div className="turn-content"><div className="turn-meta"><strong>{turn.role === 'assistant' ? 'AI 主持' : detail.session.participant_code}</strong><span>{dateTime(turn.created_at)}</span>{turn.confirmed && <span className="confirmed">✓ 已确认</span>}{turn.action && <span>{actionLabel[turn.action] ?? turn.action}</span>}</div><p>{turn.text || '（尚无可用文字）'}</p>{turn.audio_asset_id && turn.audio_status === 'available' && !mediaErrors.has(turn.id) ? <audio controls preload="none" src={`/api/media/${turn.audio_asset_id}`} onError={() => setMediaErrors(current => new Set([...current, turn.id]))} /> : <div className="audio-unavailable">{audioMessage(turn, detail.session.mode, mediaErrors.has(turn.id))}</div>}{turn.revisions?.length > 0 && <div className="revision-history">{turn.revisions.map((revision, index) => <details key={revision.id} open={selectedCitation?.revision_id === revision.id ? true : undefined}><summary>文本版本 {index + 1} · {dateTime(revision.created_at)}{revision.id === turn.revision_id ? ' · 当前版本' : ''}</summary><p>{selectedCitation?.revision_id === revision.id ? <>{revision.text.slice(0, selectedCitation.start)}<mark>{revision.text.slice(selectedCitation.start, selectedCitation.end)}</mark>{revision.text.slice(selectedCitation.end)}</> : revision.text}</p></details>)}</div>}{turn.role === 'participant' && <div className="turn-tools"><button className="text-button" onClick={() => { setEditing(turn); setEditText(turn.text) }}>添加勘误</button><span>{turn.revisions?.length ?? 0} 个版本</span></div>}{editing?.id === turn.id && <div className="revision-editor"><label>新修订不会覆盖历史版本</label><textarea rows={4} value={editText} onChange={e => setEditText(e.target.value)} /><div className="button-row end"><button className="button ghost" onClick={() => setEditing(undefined)}>取消</button><button className="button secondary" onClick={saveRevision}>保存修订</button></div></div>}</div></article>)}</div></section>
       <aside className="report-panel" id="report"><div className="section-heading"><div><h2>分析报告</h2><p>每项发现都应回到受访者原话。</p></div>{detail.reports && detail.reports.length > 1 && <select value={report?.id} onChange={e => setReport(detail.reports?.find(item => item.id === e.target.value))}>{detail.reports.map(item => <option value={item.id} key={item.id}>版本 {item.version}</option>)}</select>}</div>{!report ? <div className="report-empty"><span>⌘</span><h3>尚未生成报告</h3><p>报告只使用已确认的记录；生成任务独立运行，失败不会影响逐字稿。</p><button className="button secondary" onClick={generate}>生成报告</button></div> : <ReportView report={report} onCitation={jump} />}</aside>
@@ -47,8 +49,29 @@ export function SessionDetailPage() {
   </div>
 }
 
+const reportSections: Array<[ReportSection, string]> = [
+  ['role', '受访者自述角色'], ['event', '具体事件'], ['statement', '主要陈述'],
+  ['explanation', '受访者对原因的解释'], ['hypothesis', '待验证假设'], ['suggestion', '受访者建议'],
+]
+
 export function ReportView({ report, onCitation }: { report: Report; onCitation: (citation: Citation) => void }) {
-  return <div className="report-body"><ArchiveNotice mode={report.archive_mode} />{report.source_updated && <div className="warning-banner">来源修订已更新。此历史报告仍引用生成时的文本版本。</div>}<div className="report-version"><StatusBadge status={report.status === 'ready' ? 'succeeded' : report.status} /><span>版本 {report.version} · {dateTime(report.created_at)}</span></div>{report.body.summary && <section><h3>概览</h3><p>{report.body.summary}</p></section>}{report.body.findings?.map((finding, index) => <section className="finding" key={index}><div className="finding-type">{finding.type === 'statement' ? '受访者陈述' : finding.type === 'opinion' ? '受访者观点' : '待验证假设'}</div><p>{finding.text}</p><div className="citations">{finding.citations.map((citation, i) => <button onClick={() => onCitation(citation)} key={`${citation.turn_id}-${i}`}><span>证据 {citation.turn_id.slice(-6)}</span><q>{citation.quote}</q></button>)}</div></section>)}{!!report.body.limitations?.length && <section><h3>研究局限</h3><ul>{report.body.limitations.map(item => <li key={item}>{item}</li>)}</ul></section>}{!!report.body.unanswered?.length && <section><h3>未回答事项</h3><ul>{report.body.unanswered.map(item => <li key={item}>{item}</li>)}</ul></section>}</div>
+  return <div className="report-body">
+    <ArchiveNotice mode={report.archive_mode} />
+    {report.source_updated && <div className="warning-banner">来源修订已更新。此历史报告仍引用生成时的文本版本。</div>}
+    <div className="report-version"><StatusBadge status={report.status === 'ready' ? 'succeeded' : report.status} /><span>版本 {report.version} · {dateTime(report.created_at)}</span></div>
+    {!!report.body.limitations?.length && <section className="report-limitations"><h3>研究局限</h3><ul>{report.body.limitations.map(item => <li key={item}>{item}</li>)}</ul></section>}
+    <section><h3>研究背景</h3>{report.body.background ? <><strong>{report.body.background.title}</strong><p>{report.body.background.objective}</p></> : <p className="muted">该历史版本未保存研究背景快照。</p>}</section>
+    {report.body.summary && <section><h3>概览</h3><p>{report.body.summary}</p></section>}
+    <section><h3>已讨论范围</h3>{report.body.coverage ? <TopicCoverage coverage={report.body.coverage} /> : <p className="muted">该历史版本未保存主题覆盖快照。</p>}</section>
+    {reportSections.map(([key, title]) => {
+      const findings = report.body.findings?.filter(f => (f.section ?? (f.type === 'hypothesis' ? 'hypothesis' : 'statement')) === key) ?? []
+      return <section key={key}><h3>{title}</h3>{!findings.length ? <p className="muted">尚缺乏依据。</p> : findings.map((finding, index) => <div className="finding" key={index}>
+        <div className="finding-type">{finding.type === 'statement' ? '受访者陈述' : finding.type === 'opinion' ? '受访者观点' : '待验证假设'}</div><p>{finding.text}</p>
+        <div className="citations">{finding.citations.map((citation, i) => <button onClick={() => onCitation(citation)} key={`${citation.turn_id}-${i}`}><span>证据 {citation.turn_id.slice(-6)}</span><q>{citation.quote}</q></button>)}</div>
+      </div>)}</section>
+    })}
+    <section><h3>未回答／拒绝回答事项</h3>{report.body.unanswered?.length ? <ul>{report.body.unanswered.map(item => <li key={item}>{item}</li>)}</ul> : <p className="muted">本版本未记录其他未回答事项。</p>}</section>
+  </div>
 }
 
 function ExportMenu({ id }: { id: string }) {
