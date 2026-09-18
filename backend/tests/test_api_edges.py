@@ -8,6 +8,23 @@ from test_core import headers
 from test_interview_flow import drain
 
 
+def test_missing_upload_route_returns_structured_error_and_request_id(admin):
+    response = admin.post("/api/admin/missing-import-route", headers=headers())
+    assert response.status_code == 405
+    failure = response.json()
+    assert failure["code"] == "METHOD_NOT_ALLOWED"
+    assert "重启服务" in failure["message"]
+    assert failure["retryable"] is False
+    assert failure["request_id"] == response.headers["X-Request-ID"]
+    assert response.headers["Allow"] == "GET"
+
+
+def test_request_id_header_matches_application_errors(admin):
+    response = admin.get("/api/missing-route")
+    assert response.status_code == 404
+    assert response.headers["X-Request-ID"] == response.json()["request_id"]
+
+
 def test_request_limit_applies_to_chunked_json_without_content_length(admin):
     response = admin.post(
         "/api/admin/studies",

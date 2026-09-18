@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select
+from starlette.exceptions import HTTPException
 
 from app.config import ROOT, Settings
 from app.db import Database
@@ -109,6 +110,7 @@ def create_app(settings: Settings | None = None):
                     status_code=413,
                 )
         response = await call_next(request)
+        response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
@@ -142,6 +144,24 @@ def create_app(settings: Settings | None = None):
                 "request_id": request.state.request_id,
             },
             status_code=422,
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_error(request, exc):
+        messages = {
+            404: ("NOT_FOUND", "接口不存在"),
+            405: ("METHOD_NOT_ALLOWED", "当前服务不支持此操作（405），请重启服务后刷新页面再试。"),
+        }
+        code, message = messages.get(exc.status_code, ("HTTP_ERROR", f"请求失败（{exc.status_code}）"))
+        return JSONResponse(
+            {
+                "code": code,
+                "message": message,
+                "retryable": exc.status_code >= 500,
+                "request_id": request.state.request_id,
+            },
+            status_code=exc.status_code,
+            headers=exc.headers,
         )
 
     @app.get("/api/health")

@@ -28,7 +28,7 @@ export function Loading({ label = '正在读取…' }: { label?: string }) {
 export function ErrorPanel({ error, retry }: { error: ApiError | Error; retry?: () => void }) {
   const api = error instanceof ApiError ? error : undefined
   return <div className="error-panel" role="alert">
-    <div><strong>{error.message}</strong>{api && <small>请求编号 {api.requestId}</small>}</div>
+    <div><strong>{error.message || '请求失败，请刷新页面后重试。'}</strong>{api?.requestId && api.requestId !== 'unknown' && <small>请求编号 {api.requestId}</small>}</div>
     {retry && <button className="button ghost" onClick={retry}>{api?.retryable ? '重试' : '重新读取'}</button>}
   </div>
 }
