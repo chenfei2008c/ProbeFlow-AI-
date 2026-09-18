@@ -8,6 +8,22 @@ from test_core import headers
 from test_interview_flow import drain
 
 
+def test_automatic_settings_use_only_test_owned_storage(tmp_path, monkeypatch):
+    from app.config import Settings
+
+    config_dir = tmp_path / "developer-config"
+    config_dir.mkdir()
+    (config_dir / ".env").write_text(
+        f'DATA_DIR="{tmp_path / "external-data"}"\n'
+        f'BACKUP_DIR="{tmp_path / "external-backups"}"\nMODE=live\n'
+    )
+    monkeypatch.chdir(config_dir)
+    configured = Settings()
+    assert configured.mode == "mock"
+    assert configured.data_dir == (tmp_path / "data").resolve()
+    assert configured.backups == (tmp_path / "backups").resolve()
+
+
 def test_missing_upload_route_returns_structured_error_and_request_id(admin):
     response = admin.post("/api/admin/missing-import-route", headers=headers())
     assert response.status_code == 405
